@@ -1,0 +1,2 @@
+[gui_scripts]
+uploader-turismatica = uploader_turismatica.app:avvia
