@@ -118,6 +118,46 @@ def tabella_sul_mese_giusto(prima_riga: date | None, atteso: date) -> bool:
     return (prima_riga.month, prima_riga.year) == (atteso.month, atteso.year)
 
 
+#: Le colonne dei valori del movimento nella tabella del portale: «!», Data,
+#: Presenze notte precedente, **Arrivi, Partenze, Presenze, Unità occupate**,
+#: poi le icone.
+_VALORI = slice(3, 7)
+
+
+def giorno_gia_caricato(
+    celle: list[str], classi: list[str], titoli: list[str] | None = None,
+) -> bool:
+    """Il portale ha già il movimento di questo giorno?
+
+    ⚠️ **Il pulsante di caricamento NON lo dice** — era il criterio di prima, ed
+    è sbagliato: il pulsante **resta anche dopo**, perché serve a sostituire il
+    file (APPUNTI-ISTAT del job del Mac mini, 22/09/2026: la verifica diceva
+    «non caricato» di otto giorni che il portale aveva preso davvero). Peggio,
+    al rovescio: un giorno che il portale non apre ancora (manca il
+    precedente) non ha il pulsante, e veniva contato «già caricato» — un
+    adempimento mancante dichiarato a posto.
+
+    I segni veri, letti dalla tabella dopo un caricamento riuscito:
+
+    * la scritta **«File caricato: <nome>»** (la mette il portale);
+    * l'icona del **documento** (``fa-file…``), che c'è solo sui giorni inviati;
+    * i **valori del movimento** (arrivi, partenze, presenze, unità occupate)
+      presenti **anche se tutti zero**, e senza la doppia freccia
+      (``fa-angle-double-down``) che il portale mette sui giorni che non ha.
+      «Presenze notte precedente» no: quella la calcola il portale da sé.
+
+    Un giorno corretto a mano dall'interfaccia perde il documento ma resta
+    dentro: per questo contano anche i valori."""
+    testi = [*celle, *(titoli or [])]
+    if any("file caricato" in t.lower() for t in testi):
+        return True
+    if any("fa-file" in c for c in classi):
+        return True
+    da_fare = any("fa-angle-double-down" in c for c in classi)
+    valori = [c.strip() for c in celle[_VALORI]]
+    return len(valori) == 4 and all(valori) and not da_fare
+
+
 class ContatoreMancanti:
     """Quanti file mancanti di fila, e quando smettere."""
 
@@ -247,12 +287,20 @@ def _carica_giorno(
 
     ⚠️ Le righe si rileggono a ogni giro: dopo un upload PrimeFaces ricostruisce
     la tabella e i riferimenti presi prima sono ``stale``."""
+    riga = _leggi_riga(driver, giorno)
+    if riga is not None and giorno_gia_caricato(*riga):
+        # Già dentro: non si ricarica. Ricaricare **sostituisce** quello che
+        # c'è (manuale della Regione), anche una correzione fatta a mano sul
+        # portale — ed è la ragione per cui rilanciare sullo stesso mese è
+        # innocuo.
+        return Esito.GIA_CARICATO
     bottone = _bottone_upload_della_riga(driver, giorno)
     if bottone is None:
-        # Nessun bottone di upload su quella riga: il giorno è già caricato (o
-        # il portale non lo consente). Non è un errore, ed è la ragione per cui
-        # rilanciare sullo stesso mese è innocuo.
-        return Esito.GIA_CARICATO
+        # Non caricato e niente pulsante: il portale non apre ancora questo
+        # giorno (di solito manca il precedente). È un adempimento che manca,
+        # non «già caricato».
+        log.warning("%s: non caricato e il portale non lo apre", f"{giorno:%d/%m/%Y}")
+        return Esito.NON_RIUSCITO
 
     # Il dialog si apre da JS: il click "normale" sul bottone non basta, perché
     # è PrimeFaces a dover eseguire il suo ciclo (``ps:true`` = partial submit,
@@ -327,6 +375,41 @@ def _prima_data_in_tabella(driver: WebDriver) -> date | None:
         return datetime.strptime(testo, "%d/%m/%Y").date()  # noqa: DTZ007
     except (NoSuchElementException, WebDriverException, ValueError):
         return None
+
+
+#: La riga di un giorno in una chiamata sola: testo delle celle, classi delle
+#: icone, e i ``title`` (dove il portale scrive «File caricato: …»).
+_JS_RIGA = r"""
+const atteso = arguments[0];
+for (const tr of document.querySelectorAll('#movimentiTabView\\:tblMovimenti_data tr')) {
+  const td = tr.querySelectorAll('td');
+  if (td.length < 2 || !(td[1].innerText || '').trim().endsWith(atteso)) continue;
+  return {
+    celle: [...td].map(c => (c.innerText || '').trim()),
+    classi: [...tr.querySelectorAll('[class*="fa-"]')].map(e => e.getAttribute('class') || ''),
+    titoli: [...tr.querySelectorAll('[title]')].map(e => e.getAttribute('title') || ''),
+  };
+}
+return null;
+"""
+
+
+def _leggi_riga(
+    driver: WebDriver, giorno: date,
+) -> tuple[list[str], list[str], list[str]] | None:
+    """Celle, classi e titoli della riga di quel giorno, o ``None`` se non c'è.
+    Per testo della data, come il bottone: mai per posizione."""
+    try:
+        r = driver.execute_script(_JS_RIGA, f"{giorno:%d/%m/%Y}")
+    except WebDriverException:
+        return None
+    if not isinstance(r, dict):
+        return None
+    return (
+        [str(x) for x in r.get("celle") or []],
+        [str(x) for x in r.get("classi") or []],
+        [str(x) for x in r.get("titoli") or []],
+    )
 
 
 def _bottone_upload_della_riga(driver: WebDriver, giorno: date) -> object | None:

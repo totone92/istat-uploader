@@ -67,3 +67,52 @@ def test_un_file_trovato_azzera_il_contatore() -> None:
     assert not c.manca()
     assert not c.manca()
     assert c.manca()
+
+
+# ─── «già caricato»: dalla tabella, non dal pulsante ─────────────────────────
+# Le righe qui sotto hanno la forma della tabella vera (APPUNTI-ISTAT del job
+# del Mac mini, dump del 22/09/2026): «!», Data, notte precedente, arrivi,
+# partenze, presenze, unità occupate. Numeri inventati.
+
+_CARICA = "ui-button-icon-left ui-icon ui-c fa fa-upload"
+_DOCUMENTO = "ui-button-icon-left ui-icon ui-c fa fa-file-text-o"
+_DA_FARE = "fa fa-angle-double-down"
+
+
+def test_il_pulsante_di_caricamento_non_dice_niente() -> None:
+    """⭐ Il pulsante resta anche DOPO il caricamento (serve a sostituire il
+    file): un giorno dentro col pulsante è dentro, non «da caricare»."""
+    from uploader_turismatica.portale import giorno_gia_caricato
+
+    dentro = ["", "01/09/2026", "0", "0", "0", "0", "0"]
+    assert giorno_gia_caricato(dentro, [_CARICA, _DOCUMENTO])
+
+
+def test_il_documento_o_la_scritta_bastano() -> None:
+    from uploader_turismatica.portale import giorno_gia_caricato
+
+    vuote = ["", "02/09/2026", "3", "", "", "", ""]
+    assert giorno_gia_caricato(vuote, [_DOCUMENTO])
+    assert giorno_gia_caricato(vuote, [_CARICA], ["File caricato: 02092026.txt"])
+
+
+def test_i_valori_anche_tutti_zero_dicono_dentro() -> None:
+    """Un giorno corretto a mano sul portale perde il documento, ma resta
+    dentro: i valori del movimento ci sono, anche a zero."""
+    from uploader_turismatica.portale import giorno_gia_caricato
+
+    assert giorno_gia_caricato(["", "03/09/2026", "0", "0", "0", "0", "0"], [_CARICA])
+
+
+def test_il_giorno_che_il_portale_non_ha_non_e_caricato() -> None:
+    """⭐ Il rovescio del vecchio criterio: il giorno che il portale non apre
+    ancora non ha il pulsante, e veniva contato «già caricato»."""
+    from uploader_turismatica.portale import giorno_gia_caricato
+
+    # solo «presenze notte precedente» (la calcola il portale) e la doppia freccia
+    prossimo = ["", "04/09/2026", "2", "", "", "", ""]
+    assert not giorno_gia_caricato(prossimo, [_DA_FARE])
+    assert not giorno_gia_caricato(prossimo, [_CARICA])
+    assert not giorno_gia_caricato(["", "05/09/2026", "", "", "", "", ""], [])
+    # valori pieni ma con la doppia freccia: il portale lo chiede ancora
+    assert not giorno_gia_caricato(["", "06/09/2026", "1", "1", "0", "2", "1"], [_DA_FARE])

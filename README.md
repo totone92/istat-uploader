@@ -9,7 +9,16 @@ Gira sul PC del gestore, non sul nostro server.
 
 L'app fa **una cosa sola**: prende i `.txt` di un periodo, apre il portale,
 aspetta SPID, carica giorno per giorno. Non genera e non converte niente — i
-`.txt` li fa beb.it e li scarica HostLab.
+`.txt` li fa beb.it e li scarica HostLab, oppure, per una struttura senza beb,
+li genera HostLab stesso (Report → ISTAT → «Genera file ISTAT»): stesso nome,
+stesso tracciato.
+
+**«Già caricato» si legge dalla tabella, non dal pulsante** (dal 19/10/2026,
+allineato al job del Mac mini): il pulsante di caricamento resta anche dopo,
+perché serve a sostituire il file. Un giorno è dentro se il portale scrive
+«File caricato: …», se c'è l'icona del documento, o se i valori del movimento
+ci sono (anche tutti zero) senza la doppia freccia. Un giorno che il portale
+non apre ancora è **non riuscito**, non «già caricato».
 
 ---
 
