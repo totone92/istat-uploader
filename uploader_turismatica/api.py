@@ -40,7 +40,13 @@ from uploader_turismatica.chrome import ChromeNonDisponibile
 from uploader_turismatica.configurazione import Configurazione, StrutturaConf
 from uploader_turismatica.esito import Esito, EsitoStruttura, riepilogo
 from uploader_turismatica.periodo import MESI, fine_mese, mese_scorso
-from uploader_turismatica.piano import StatoGiorno, StatoMese, VocePiano, costruisci
+from uploader_turismatica.piano import (
+    StatoGiorno,
+    StatoMese,
+    VocePiano,
+    costruisci,
+    scadenza_comunicazione,
+)
 from uploader_turismatica.riconoscimento import StrutturaTrovata
 from uploader_turismatica.sessione import Portale
 from uploader_turismatica.sorgente import (
@@ -246,9 +252,20 @@ class Api:
                     "passo": i, "totale": len(trovate),
                 })
                 letti = portale.leggi_mesi(s.id_turismatica, mesi, strutture_note=note)
+                # L'intestazione dei movimenti completa ciò che l'elenco non
+                # dice (comune, tipologia, CIR, CIN). Il nome resta quello
+                # dell'elenco, se c'era: è quello che il gestore ha scelto.
+                t = letti.struttura if (
+                    letti.struttura is not None
+                    and letti.struttura.id_turismatica in ("", s.id_turismatica)
+                ) else None
                 strutture.append(StrutturaConf(
-                    id_turismatica=s.id_turismatica, nome=s.nome or f"Struttura {s.id_turismatica}",
-                    comune=s.comune, tipologia=s.tipologia, stato_portale=s.stato,
+                    id_turismatica=s.id_turismatica,
+                    nome=s.nome or (t.nome if t else "") or f"Struttura {s.id_turismatica}",
+                    comune=s.comune or (t.comune if t else ""),
+                    tipologia=s.tipologia or (t.tipologia if t else ""),
+                    stato_portale=s.stato or (t.stato if t else ""),
+                    cir=t.cir if t else "", cin=t.cin if t else "",
                     manuale=manuale, mesi=letti.mesi, avviso=letti.avviso,
                 ))
             portale.chiudi()
@@ -352,7 +369,7 @@ class Api:
             self._vai_principale(MESSAGGIO_ZIP_DI_PROVA, "errore")
             return {"ok": False}
         self._archivio = archivio
-        strutture = [StrutturaNota(s.id_turismatica, s.nome) for s in self._conf.strutture]
+        strutture = [StrutturaNota(s.id_turismatica, s.nome, s.cin) for s in self._conf.strutture]
         self._abbinamenti = abbina(gruppi, strutture, self._conf.alias)
         log.info("zip %s: %d gruppi di file", Path(percorso).name, len(gruppi))
         if any(a.id_turismatica is None for a in self._abbinamenti):
@@ -444,39 +461,60 @@ class Api:
                     "giorni_da_caricare": v.da_caricare,
                     "letto_il": f"{v.letto_il:%d/%m %H:%M}" if v.letto_il else "",
                     "futuri": v.futuri,
+                    "chiuso": v.chiuso,
+                    "chiave": self._chiave_voce(v),
+                    "comunicabile": v.comunicabile,
+                    "scadenza": f"{scadenza_comunicazione(v.anno, v.mese):%d/%m}",
                 }
                 for v in voci
             ],
-            "niente_da_fare": not any(v.da_caricare for v in voci),
+            "niente_da_fare": not any(v.da_caricare or v.comunicabile for v in voci),
             "di_prova": prova_nel_piano,
             "conferma_vera": self._frase_conferma(voci),
         })
 
     @staticmethod
+    def _chiave_voce(v: VocePiano) -> str:
+        return f"{v.id_turismatica}|{v.anno:04d}-{v.mese:02d}"
+
+    @staticmethod
     def _frase_conferma(voci: list[VocePiano]) -> str:
         parti = [f"{v.nome}: {v.etichetta_mese}, {len(v.da_caricare)} giorni"
                  for v in voci if v.da_caricare]
+        if not parti:
+            return "Non carico nessun giorno: sono già tutti sul portale."
         return "Carico DAVVERO sul portale — " + "; ".join(parti) + "."
 
     # ─── il giro ─────────────────────────────────────────────────────────────
 
-    def avvia(self, confermato: bool = False) -> dict[str, Any]:
+    def avvia(self, confermato: bool = False, comunica: list[str] | None = None) -> dict[str, Any]:
+        """Il giro. ``comunica``: le voci del piano (``id|AAAA-MM``) per cui il
+        gestore ha chiesto anche la **comunicazione mensile** — un'operazione
+        che chiude il mese sul portale. In prova si arriva fino al bottone e
+        non lo si preme; in vera serve la stessa conferma del caricamento."""
         if self._schermata != "piano" or not self._piano:
             return {"errore": "Non c'è un piano da eseguire."}
         if not self._prova and not confermato:
             return {"errore": "Per caricare davvero serve la conferma."}
         if not self._prova and any(g.di_prova for _, g in self._piano):
             return {"errore": MESSAGGIO_ZIP_DI_PROVA}
-        if not any(v.da_caricare for v, _ in self._piano):
+        chieste = set(comunica or [])
+        possibili = {self._chiave_voce(v) for v, _ in self._piano if v.comunicabile}
+        if chieste - possibili:
+            return {"errore": "La comunicazione mensile si può chiedere solo per un mese "
+                              "concluso, entro il 5 del mese dopo, con tutti i giorni."}
+        if not any(v.da_caricare for v, _ in self._piano) and not chieste:
             return {"errore": "Non c'è niente da caricare."}
         prova = self._prova
-        return self._avvia_lavoro(lambda: self._giro_carica(prova))
+        return self._avvia_lavoro(lambda: self._giro_carica(prova, chieste))
 
-    def _giro_carica(self, prova: bool) -> None:
+    def _giro_carica(self, prova: bool, comunica: set[str] | None = None) -> None:
         assert self._conf is not None
+        comunica = comunica or set()
         portale = self._portale()
         esiti: list[EsitoStruttura] = []
-        voci = [(v, g) for v, g in self._piano if v.periodo is not None]
+        voci = [(v, g) for v, g in self._piano
+                if v.periodo is not None or self._chiave_voce(v) in comunica]
         totale_giorni = sum(len(v.da_caricare) for v, _ in voci)
         fatti = 0
         log.info("giro: inizio | versione=%s | modalità=%s | %s", __version__,
@@ -488,7 +526,6 @@ class Api:
                 if self._annullato.is_set():
                     break
                 periodo = v.periodo
-                assert periodo is not None
                 sorgente = sorgente_da(list(gruppo.per_giorno.values()), di_prova=gruppo.di_prova)
 
                 def avanzamento(msg: str, v: VocePiano = v) -> None:
@@ -508,11 +545,14 @@ class Api:
                 esito = portale.carica(
                     id_turismatica=v.id_turismatica, etichetta=v.nome, sorgente=sorgente,
                     periodo=periodo, prova=prova, strutture_note=self._conf.ids(),
+                    comunica=date(v.anno, v.mese, 1) if self._chiave_voce(v) in comunica else None,
                     avanzamento=avanzamento,
                 )
                 esiti.append(esito)
                 if not prova:
                     self._segna_caricati(v.id_turismatica, esito)
+                    if esito.comunicazione_riuscita:
+                        self._segna_comunicato(v.id_turismatica, v.anno, v.mese)
             portale.chiudi()
             mesi = sorted({v.etichetta_mese for v, _ in voci})
             testo = riepilogo(esiti, " e ".join(mesi), prova=prova)
@@ -538,6 +578,8 @@ class Api:
                         "gia": e.quanti(Esito.GIA_CARICATO),
                         "non_riusciti": [f"{g:%d/%m}" for g in e.elenco(Esito.NON_RIUSCITO)],
                         "mancanti": [f"{g:%d/%m}" for g in e.elenco(Esito.FILE_MANCANTE)],
+                        "comunicazione": e.comunicazione,
+                        "comunicazione_riuscita": e.comunicazione_riuscita,
                     }
                     for e in esiti
                 ],
@@ -559,6 +601,12 @@ class Api:
             chiave = f"{g.year:04d}-{g.month:02d}"
             mese = s.mesi.setdefault(chiave, StatoMese(g.year, g.month))
             mese.giorni[g.day] = StatoGiorno.CARICATO
+
+    def _segna_comunicato(self, ident: str, anno: int, mese: int) -> None:
+        assert self._conf is not None
+        s = self._conf.struttura(ident)
+        if s is not None:
+            s.mesi.setdefault(f"{anno:04d}-{mese:02d}", StatoMese(anno, mese)).chiuso = True
 
     # ─── dettagli, registro, computer ───────────────────────────────────────
 
@@ -661,6 +709,7 @@ class Api:
             "nome": s.nome,
             "comune": s.comune,
             "tipologia": s.tipologia,
+            "cin": s.cin,
             "manuale": s.manuale,
             "avviso": s.avviso,
             "mesi": [self._vista_mese(s.mesi.get(f"{m.year:04d}-{m.month:02d}"), m, oggi)
@@ -679,9 +728,12 @@ class Api:
                 giorni.append({"g": g, "s": "sconosciuto"})
             else:
                 giorni.append({"g": g, "s": stato.giorni[g].value})
-        letto = stato is not None and bool(stato.giorni)
+        letto = stato is not None and (bool(stato.giorni) or stato.chiuso)
         return {
             "etichetta": f"{MESI[primo.month - 1]} {primo.year}",
+            "comunicazione": (stato or StatoMese(primo.year, primo.month)).comunicazione(oggi)
+            if letto else "",
+            "scadenza": f"{scadenza_comunicazione(primo.year, primo.month):%d/%m}",
             "letto": letto,
             "letto_il": f"{stato.letto_il:%d/%m %H:%M}" if stato and stato.letto_il else "",
             "caricati": len(stato.caricati()) if stato else 0,

@@ -1,11 +1,9 @@
 """Le strutture lette dalla pagina del portale, e la copia ripulita.
 
-⚠️ Le pagine qui sotto sono **finte**: la pagina vera con l'elenco delle
-strutture non l'abbiamo mai vista. Sono costruite nelle forme più probabili per
-un portale JSF/PrimeFaces come Turismatica (tabella con intestazioni, link
-JSF con parametri, ``<select>``, schede). Quello che provano è che la lettura
-**parte dall'unica cosa certa** — ``idStruttura`` — e non da un selettore
-indovinato. Quando arriverà una copia vera (ripulita), entra qui come fixture.
+⚠️ Le pagine qui sotto sono **inventate**: provano le forme di ripiego
+(tabella con intestazioni, link JSF con parametri, ``<select>``, schede) per un
+portale che domani cambi. Le pagine **vere** sono in
+``tests/fixtures/turismatica/`` e si provano in ``test_pagine_vere.py``.
 """
 from __future__ import annotations
 

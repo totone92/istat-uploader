@@ -39,13 +39,19 @@ comunque»**. Cosa fare se lo blocca l'antivirus →
    caricati e quali mancano.
 4. **Conferma**: controlli il riepilogo, togli ciò che non gestisci, e solo
    allora si salva.
-5. **Ogni mese**: trascini lo zip, i file si abbinano da soli (o il programma
-   chiede, se non è chiaro), leggi il piano — «Settembre, Casa Lavanda: 28 giorni
-   già presenti, 2 da caricare (12 e 19)» — e parti.
+5. **Ogni mese**: trascini lo zip, i file si abbinano da soli (dal nome della
+   struttura scritto nei file, o dal CIN nel nome del file) o il programma
+   chiede, se non è chiaro; leggi il piano — «Settembre, Casa Lavanda: 28
+   giorni già presenti, 2 da caricare (12 e 19)» — e parti.
+6. **La comunicazione mensile**, se vuoi: a mese concluso (entro il 5 del mese
+   dopo) il programma può inviarla come ultimo passo, solo se tutti i giorni
+   risultano caricati e solo con una tua conferma. Per ogni struttura ti dice
+   se il mese risulta già comunicato.
 
-Se la lettura automatica delle strutture non riesce, il programma te le fa
-scrivere a mano e salva una copia della pagina **senza dati personali**, da
-mandare a chi ti assiste.
+Le strutture si leggono dalla pagina «Seleziona la struttura» del portale; nome,
+comune, tipologia, CIR e CIN dall'intestazione dei movimenti. Se la lettura non
+riesce, il programma te le fa scrivere a mano e salva una copia della pagina
+**senza dati personali**, da mandare a chi ti assiste.
 
 ## Parte sempre in modalità PROVA
 

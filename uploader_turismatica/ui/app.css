@@ -306,3 +306,9 @@ pre.riepilogo {
   .voce { grid-template-columns: 1fr 1fr; }
   .voce .testo-voce { grid-column: 1 / -1; }
 }
+
+.comunica { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; padding: 10px 12px;
+  border: 1px solid var(--bordo); border-radius: 10px; cursor: pointer; color: var(--testo); }
+.comunica .piccolo-testo { display: block; margin-top: 2px; }
+.comunicato { color: var(--ok); margin-top: 4px; }
+.da-comunicare { color: var(--attenzione, var(--testo-2)); margin-top: 4px; }

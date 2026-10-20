@@ -48,6 +48,29 @@ def mese_non_raggiunto(mostrato: str, voluto: str) -> str:
     )
 
 
+def struttura_diversa(id_turismatica: str) -> str:
+    return (
+        f"Ho chiesto al portale la struttura {id_turismatica} ma ne ha aperta "
+        "un'altra, anche passando dalla scelta della struttura. Non carico "
+        "niente per non sbagliare struttura: apri «Dettagli» e manda il registro."
+    )
+
+
+def mese_chiuso(mese: str) -> str:
+    return (
+        f"{mese} è già chiuso sul portale (la comunicazione mensile è fatta): "
+        "i movimenti non si possono più caricare né cambiare."
+    )
+
+
+def mese_chiuso_non_letto(mese: str) -> str:
+    return (
+        f"{mese} non è più fra i mesi aperti del portale (risulta chiuso), ma non "
+        "sono riuscito a leggerne i giorni nella scheda «Movimento periodo "
+        "chiuso». Non serve fare niente: un mese chiuso non si carica più."
+    )
+
+
 def strutture_non_lette(percorso_copia: str | None) -> str:
     base = (
         "Sono entrato nel portale ma non sono riuscito a leggere l'elenco delle "

@@ -68,6 +68,19 @@ proposta), poi ti mostra le strutture con i giorni: **verde** caricato,
    finestra di Chrome** mentre lavora.
 7. Alla fine leggi com'è andata. **«Copia tutto»** se vuoi mandarlo a qualcuno.
 
+### La comunicazione mensile
+
+Finito il mese, entro il **5 del mese dopo**, va fatta la comunicazione
+telematica mensile. Nella schermata principale ogni struttura dice se il mese
+risulta **comunicato** o **da comunicare**.
+
+Il programma può farla per te come **ultimo passo** del giro: nel piano spunta
+«Alla fine invia anche la comunicazione mensile». La invia solo se **tutti** i
+giorni del mese risultano caricati, e solo in modalità vera con la conferma.
+
+> ⚠️ Dopo la comunicazione **i dati del mese non si modificano più**. Spuntala
+> quando sei sicuro che il mese è a posto.
+
 ---
 
 ## Domande che vengono a tutti
@@ -88,6 +101,11 @@ Fai «Aggiorna le mie strutture» con lo SPID di chi gestisce quella struttura.
 **Mi dice «Questo è lo zip di prova».**
 È lo zip con i file inventati: serve solo in modalità prova. Per caricare
 davvero usa lo zip vero del tuo gestionale.
+
+**Ci sono giorni senza nessun movimento: devo usare «nessun nuovo movimento»?**
+No. Il programma carica il file di ogni giorno, anche quando è vuoto: è più
+sicuro, perché quel bottone del portale conferma anche le unità occupate del
+giorno prima.
 
 **Si è fermato a metà.**
 Quello che ha già caricato resta. Rilancia: fa solo quello che manca.

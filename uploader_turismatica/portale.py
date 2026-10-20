@@ -18,6 +18,28 @@ Cosa NON c'è più rispetto allo script originale, e perché:
   bloccato 30 s su una pagina che non esiste; la lettura dello stato fa lo
   stesso lavoro senza dover ricordare niente.
 
+Il portale vero (pagine di ottobre 2026, in ``tests/fixtures/turismatica/``):
+cosa si **legge** sta in ``pagina_movimenti`` (Python, provato sulle copie);
+qui restano i clic — per id, con l'id trovato da quella lettura.
+
+* l'elenco delle strutture è in ``prehome.xhtml``; per entrare in una si va
+  diretti a ``movimentoospiti.xhtml?idStruttura=…`` e, se il portale apre
+  un'altra struttura o nessuna tabella, si passa da ``prehome`` come il
+  gestore (tendina, «Accedi»): ``apri_movimenti``;
+* i mesi: le frecce si muovono solo fra i mesi **aperti**; un mese prima di
+  quelli è nel «periodo chiuso» e si legge da quella scheda (``leggi_mese``);
+* la comunicazione mensile è l'ultimo passo, solo se chiesta
+  (``invia_comunicazione``).
+
+⚠️ **«Nessun nuovo movimento fino a questo giorno» NON si usa.** Il portale
+spiega che registra «nessun arrivo e nessuna partenza» dall'ultimo giorno
+compilato **fino** a quello scelto, confermando presenze e unità occupate
+dell'ultimo giorno. Equivale a un file a zero movimenti solo se anche le unità
+occupate restano uguali — e il file del gestionale può dire altro (un ospite
+che cambia camera). In più copre un intervallo intero in un gesto: un errore
+vale molti giorni. Il file del giorno dice esattamente cosa c'è: si carica
+quello, uno per giorno, anche quando è vuoto.
+
 ⚠️ **Il login NON si automatizza**: qui dentro non c'è una riga che provi a
 entrare. Si apre la pagina e si aspetta (``attendi_accesso``).
 """
@@ -25,16 +47,16 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import re
 import time
-from collections.abc import Callable, Collection
-from datetime import date, datetime
+from collections.abc import Callable, Collection, Sequence
+from dataclasses import dataclass, field
+from datetime import date
+from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
-    NoSuchElementException,
     StaleElementReferenceException,
     TimeoutException,
     WebDriverException,
@@ -46,7 +68,17 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from uploader_turismatica import messaggi
 from uploader_turismatica.esito import Esito, EsitoStruttura
-from uploader_turismatica.periodo import MESI, Periodo
+from uploader_turismatica.pagina_movimenti import (
+    SCHEDA_APERTO,
+    SCHEDA_CHIUSO,
+    PaginaMovimenti,
+    RigaPortale,
+    giorno_gia_caricato,
+    leggi_pagina,
+    mese_nel_dialogo,
+    verso,
+)
+from uploader_turismatica.periodo import MESI, Periodo, fine_mese
 from uploader_turismatica.sorgente import Sorgente, blocco_modalita_vera
 
 log = logging.getLogger(__name__)
@@ -57,9 +89,6 @@ MOVIMENTI_URL = (
     "movimentoospiti.xhtml?idStruttura={}"
 )
 
-#: Id della tabella dei movimenti. I due punti vanno protetti nei selettori CSS.
-_TABELLA = "movimentiTabView:tblMovimenti_data"
-_TABELLA_CSS = "#movimentiTabView\\:tblMovimenti_data tr"
 _DIALOG = (By.ID, "movimentiTabView:uploadFileDialog")
 _CAMPO_FILE = (
     By.ID, "movimentiTabView:formUploadFile:fileUploadGiornoAperto_input",
@@ -147,46 +176,6 @@ def tabella_sul_mese_giusto(prima_riga: date | None, atteso: date) -> bool:
     return (prima_riga.month, prima_riga.year) == (atteso.month, atteso.year)
 
 
-#: Le colonne dei valori del movimento nella tabella del portale: «!», Data,
-#: Presenze notte precedente, **Arrivi, Partenze, Presenze, Unità occupate**,
-#: poi le icone.
-_VALORI = slice(3, 7)
-
-
-def giorno_gia_caricato(
-    celle: list[str], classi: list[str], titoli: list[str] | None = None,
-) -> bool:
-    """Il portale ha già il movimento di questo giorno?
-
-    ⚠️ **Il pulsante di caricamento NON lo dice** — era il criterio di prima, ed
-    è sbagliato: il pulsante **resta anche dopo**, perché serve a sostituire il
-    file (APPUNTI-ISTAT del job del Mac mini, 22/09/2026: la verifica diceva
-    «non caricato» di otto giorni che il portale aveva preso davvero). Peggio,
-    al rovescio: un giorno che il portale non apre ancora (manca il
-    precedente) non ha il pulsante, e veniva contato «già caricato» — un
-    adempimento mancante dichiarato a posto.
-
-    I segni veri, letti dalla tabella dopo un caricamento riuscito:
-
-    * la scritta **«File caricato: <nome>»** (la mette il portale);
-    * l'icona del **documento** (``fa-file…``), che c'è solo sui giorni inviati;
-    * i **valori del movimento** (arrivi, partenze, presenze, unità occupate)
-      presenti **anche se tutti zero**, e senza la doppia freccia
-      (``fa-angle-double-down``) che il portale mette sui giorni che non ha.
-      «Presenze notte precedente» no: quella la calcola il portale da sé.
-
-    Un giorno corretto a mano dall'interfaccia perde il documento ma resta
-    dentro: per questo contano anche i valori."""
-    testi = [*celle, *(titoli or [])]
-    if any("file caricato" in t.lower() for t in testi):
-        return True
-    if any("fa-file" in c for c in classi):
-        return True
-    da_fare = any("fa-angle-double-down" in c for c in classi)
-    valori = [c.strip() for c in celle[_VALORI]]
-    return len(valori) == 4 and all(valori) and not da_fare
-
-
 class ContatoreMancanti:
     """Quanti file mancanti di fila, e quando smettere."""
 
@@ -231,13 +220,19 @@ def carica_struttura(
     id_turismatica: str,
     etichetta: str,
     sorgente: Sorgente,
-    periodo: Periodo,
+    periodo: Periodo | None,
     prova: bool,
     strutture_note: Collection[str],
+    comunica: date | None,
     avanzamento: Avanzamento | None = None,
 ) -> EsitoStruttura:
     """Carica i giorni del periodo per **una** struttura — o, con ``prova``,
     arriva fino all'ultimo passo di ogni giorno e non lo fa (``carica_giorno``).
+
+    ``comunica`` (il primo del mese, o ``None``): **ultimo passo**, la
+    comunicazione telematica mensile di quel mese (``invia_comunicazione``).
+    Si tenta solo se nessun giorno è andato storto. Non ha default: la chiede
+    il gestore, con una conferma sua, e dimenticarla non deve volerla dire.
 
     Non solleva per i problemi di quella struttura: li mette nell'esito. Il
     chiamante passa alla successiva — una struttura rotta non deve togliere il
@@ -258,14 +253,44 @@ def carica_struttura(
         dillo(f"salto: {bloccata}")
         return esito
 
+    if periodo is not None:
+        _carica_giorni(driver, esito, id_turismatica=id_turismatica, etichetta=etichetta,
+                       sorgente=sorgente, periodo=periodo, prova=prova,
+                       strutture_note=strutture_note, dillo=dillo)
+    if comunica is not None and esito.saltata is None:
+        if esito.quanti(Esito.NON_RIUSCITO) or esito.quanti(Esito.FILE_MANCANTE):
+            esito.comunicazione = ("comunicazione mensile non inviata: prima vanno "
+                                   "sistemati i giorni non caricati.")
+        else:
+            dillo(f"comunicazione mensile di {MESI[comunica.month - 1]} {comunica.year}")
+            esito.comunicazione_riuscita, esito.comunicazione = invia_comunicazione(
+                driver, id_turismatica, comunica, prova=prova, strutture_note=strutture_note,
+            )
+    return esito
+
+
+def _carica_giorni(
+    driver: WebDriver, esito: EsitoStruttura, *, id_turismatica: str, etichetta: str,
+    sorgente: Sorgente, periodo: Periodo, prova: bool, strutture_note: Collection[str],
+    dillo: Callable[[str], None],
+) -> None:
     dillo(f"apro la pagina dei movimenti di {etichetta}")
-    problema = apri_movimenti(
-        driver, id_turismatica, periodo.dal, strutture_note=strutture_note,
-    )
+    problema = apri_movimenti(driver, id_turismatica, strutture_note=strutture_note)
+    if problema is None:
+        etichetta_mese = f"{MESI[periodo.dal.month - 1]} {periodo.dal.year}"
+        raggiunto = vai_al_mese(driver, periodo.dal)
+        if raggiunto is Raggiunto.CHIUSO:
+            problema = messaggi.mese_chiuso(etichetta_mese)
+        elif raggiunto is Raggiunto.NO:
+            mostrato = pagina(driver).mese
+            problema = messaggi.mese_non_raggiunto(
+                f"{MESI[mostrato.month - 1]} {mostrato.year}" if mostrato else "un altro mese",
+                etichetta_mese,
+            )
     if problema is not None:
         esito.saltata = problema
         dillo(f"salto: {problema}")
-        return esito
+        return
 
     attesa = WebDriverWait(driver, 30)
     passi = _PassiSelenium(driver, attesa)
@@ -304,8 +329,6 @@ def carica_struttura(
         esito.segna(giorno, risultato, file.name)
         registra_giorno(id_turismatica, giorno, risultato, file.name, errore)
         time.sleep(PAUSA_FRA_GIORNI_S)
-
-    return esito
 
 
 class Passi(Protocol):
@@ -385,17 +408,20 @@ class _PassiSelenium:
         self.attesa = attesa
 
     def riga(self, giorno: date) -> tuple[list[str], list[str], list[str]] | None:
-        return _leggi_riga(self.driver, giorno)
+        # Per testo della data, mai per posizione: sbagliare riga vuol dire
+        # dichiarare il movimento di un giorno su un altro.
+        r = pagina(self.driver).riga(giorno)
+        return r.grezza if r is not None else None
 
     def apri_dialog(self, giorno: date) -> bool:
-        bottone = _bottone_upload_della_riga(self.driver, giorno)
-        if bottone is None:
+        r = pagina(self.driver).riga(giorno)
+        if r is None or not r.id_carica:
             return False
         # Il dialog si apre da JS: il click "normale" sul bottone non basta,
         # perché è PrimeFaces a dover eseguire il suo ciclo (``ps:true`` =
         # partial submit, ``u:`` = cosa aggiornare, ``onco:`` = che fare dopo
-        # la risposta).
-        bid = bottone.get_attribute("id")  # type: ignore[attr-defined]
+        # la risposta). È la chiamata che il bottone vero ha nel suo onclick.
+        bid = r.id_carica
         self.driver.execute_script(
             "PrimeFaces.ab({"
             f"s:'{bid}',p:'{bid}',u:'movimentiTabView:uploadFileDialog',"
@@ -457,32 +483,116 @@ class _PassiSelenium:
             )
 
 
-def apri_movimenti(
-    driver: WebDriver, id_turismatica: str, mese: date, *,
-    strutture_note: Collection[str],
-) -> str | None:
-    """Apre la pagina dei movimenti della struttura **sul mese voluto**.
-    ``None`` se è pronta; altrimenti il messaggio per il gestore (cosa è
-    successo e cosa fare). Sola lettura: apre, legge, al più cambia mese."""
-    driver.get(MOVIMENTI_URL.format(id_turismatica))
-    stato = _stato_struttura(driver)
-    if not stato_utilizzabile(stato):
-        assert stato is not None
-        return messaggi.struttura_non_attiva(id_turismatica, stato)
+def pagina(driver: WebDriver) -> PaginaMovimenti:
+    """La pagina com'è adesso, letta in Python (``pagina_movimenti``)."""
     try:
-        WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.ID, _TABELLA))
+        return leggi_pagina(driver.page_source or "")
+    except WebDriverException:
+        return PaginaMovimenti(struttura=None)
+
+
+def _aspetta_pagina(
+    driver: WebDriver, condizione: Callable[[PaginaMovimenti], bool], secondi: float,
+) -> PaginaMovimenti | None:
+    """Rilegge la pagina finché ``condizione`` è vera (o scade il tempo)."""
+    fine = time.monotonic() + secondi
+    while True:
+        p = pagina(driver)
+        if condizione(p):
+            return p
+        if time.monotonic() >= fine:
+            return None
+        time.sleep(0.5)
+
+
+def _sulla_struttura(p: PaginaMovimenti, id_turismatica: str) -> bool | None:
+    """La pagina è quella della struttura voluta? ``None`` = non lo dice."""
+    if p.struttura is None or not p.struttura.id_turismatica:
+        return None
+    return p.struttura.id_turismatica == id_turismatica
+
+
+#: Sceglie la struttura nella tendina di ``prehome.xhtml`` e preme «Accedi».
+#: È navigazione, non scrittura: è ciò che fa il gestore per entrare in una
+#: struttura. Prima il widget PrimeFaces (aggiorna anche l'etichetta e il
+#: valore che il modulo invia), poi, se non c'è, la ``<select>`` nascosta.
+_JS_SCEGLI_STRUTTURA = r"""
+const id = arguments[0];
+const sel = [...document.querySelectorAll('select[id$="_input"]')]
+  .find(s => [...s.options].some(o => o.value === id));
+if (!sel) return 'assente';
+const menu = sel.id.slice(0, -'_input'.length);
+let fatto = false;
+if (window.PrimeFaces && PrimeFaces.widgets) {
+  for (const k in PrimeFaces.widgets) {
+    const w = PrimeFaces.widgets[k];
+    if (w && w.id === menu && typeof w.selectValue === 'function') { w.selectValue(id); fatto = true; }
+  }
+}
+if (!fatto) { sel.value = id; sel.dispatchEvent(new Event('change', {bubbles: true})); }
+const modulo = sel.closest('form') || document;
+const accedi = [...modulo.querySelectorAll('button')].find(b => /accedi/i.test(b.textContent || ''));
+if (!accedi) return 'senza-accedi';
+accedi.click();
+return 'ok';
+"""
+
+
+def _entra_da_prehome(driver: WebDriver, id_turismatica: str) -> bool:
+    """Entra nella struttura dalla pagina di scelta, come farebbe il gestore.
+    ``True`` se dopo si è sulla sua pagina dei movimenti."""
+    driver.get(PREHOME_URL)
+    try:
+        esito = driver.execute_script(_JS_SCEGLI_STRUTTURA, id_turismatica)
+    except WebDriverException as exc:
+        log.warning("scelta della struttura in prehome non riuscita: %s", _in_breve(exc))
+        return False
+    log.info("struttura %s scelta da prehome: %s", id_turismatica, esito)
+    if esito != "ok":
+        return False
+    with contextlib.suppress(TimeoutException, WebDriverException):
+        WebDriverWait(driver, 20).until(lambda d: "prehome" not in (d.current_url or ""))
+    if "movimentoospiti" not in _url(driver):
+        driver.get(MOVIMENTI_URL.format(id_turismatica))
+    return _aspetta_pagina(
+        driver, lambda p: bool(p.righe) and _sulla_struttura(p, id_turismatica) is not False, 15,
+    ) is not None
+
+
+def apri_movimenti(
+    driver: WebDriver, id_turismatica: str, *, strutture_note: Collection[str],
+) -> str | None:
+    """Apre la pagina dei movimenti della struttura. ``None`` se è pronta;
+    altrimenti il messaggio per il gestore (cosa è successo e cosa fare).
+
+    Prima l'indirizzo diretto (``?idStruttura=…``). Se la pagina che si apre
+    è di **un'altra** struttura — il portale potrebbe ricordare quella scelta in
+    ``prehome`` invece di seguire l'indirizzo — si passa da ``prehome`` come il
+    gestore: tendina, «Accedi». Una pagina che non dice di chi è si accetta
+    (``_sulla_struttura`` → ``None``): l'indirizzo l'abbiamo scritto noi."""
+    driver.get(MOVIMENTI_URL.format(id_turismatica))
+    p = _aspetta_pagina(driver, lambda p: bool(p.righe) or p.struttura is not None, 15)
+    if p is not None and _sulla_struttura(p, id_turismatica) is False:
+        log.warning(
+            "l'indirizzo diretto ha aperto la struttura %s invece di %s: passo da prehome",
+            p.struttura.id_turismatica if p.struttura else "?", id_turismatica,
         )
-    except TimeoutException:
+        _entra_da_prehome(driver, id_turismatica)
+        p = pagina(driver)
+    elif p is None or not p.righe:
+        log.info("pagina dei movimenti di %s senza tabella: provo da prehome", id_turismatica)
+        if _entra_da_prehome(driver, id_turismatica):
+            p = pagina(driver)
+    if p is not None and p.struttura is not None and not stato_utilizzabile(p.struttura.stato or None):
+        return messaggi.struttura_non_attiva(id_turismatica, p.struttura.stato)
+    if p is None or not p.righe:
         return messaggi.perche_movimenti_non_aperti(
             id_turismatica,
             url=_url(driver), testo_pagina=_testo_visibile(driver),
             strutture_note=strutture_note,
         )
-    if not vai_al_mese(driver, mese):
-        prima = _prima_data_in_tabella(driver)
-        mostrato = f"{MESI[prima.month - 1]} {prima.year}" if prima else "un altro mese"
-        return messaggi.mese_non_raggiunto(mostrato, f"{MESI[mese.month - 1]} {mese.year}")
+    if _sulla_struttura(p, id_turismatica) is False:
+        return messaggi.struttura_diversa(id_turismatica)
     return None
 
 
@@ -500,112 +610,195 @@ def _testo_visibile(driver: WebDriver) -> str:
         return ""
 
 
-#: Comandi che **cambiano mese** nella pagina dei movimenti: frecce del
-#: calendario o del paginatore, «precedente»/«successivo». ⚠️ Mai un comando
-#: che scriva: chi parla di caricare, salvare, inviare, confermare, eliminare
-#: o modificare è escluso, e il dialog di caricamento è fuori dalla ricerca.
-_JS_COMANDO_MESE = r"""
-const verso = arguments[0];   // 'indietro' | 'avanti'
-const segni = verso === 'indietro'
-  ? /precedent|indietro|prev|seek-prev|angle-left|chevron-left|arrow-left|triangle-1-w|circle-triangle-w/i
-  : /successiv|avanti|next|seek-next|angle-right|chevron-right|arrow-right|triangle-1-e|circle-triangle-e/i;
-const vietati = /carica|upload|salva|save|invia|submit|conferm|elimin|cancell|delete|modific|nuov/i;
-const dialog = document.getElementById('movimentiTabView:uploadFileDialog');
-for (const el of document.querySelectorAll('a, button, [role="button"], span.ui-paginator-prev, span.ui-paginator-next')) {
-  if (dialog && dialog.contains(el)) continue;
-  const tabella = document.getElementById('movimentiTabView:tblMovimenti_data');
-  if (tabella && tabella.contains(el)) continue;
-  if (el.getAttribute('aria-disabled') === 'true' || el.classList.contains('ui-state-disabled') || el.disabled) continue;
-  const icone = [...el.querySelectorAll('[class]')].map(e => e.getAttribute('class')).join(' ');
-  const descr = [el.innerText, el.getAttribute('title'), el.getAttribute('aria-label'),
-                 el.getAttribute('class'), icone].join(' ');
-  if (vietati.test(descr)) continue;
-  if (segni.test(descr)) return el;
-}
-return null;
-"""
+def _premi(driver: WebDriver, id_elemento: str) -> None:
+    """Preme un bottone per id. Il bottone l'ha trovato ``pagina_movimenti``."""
+    driver.execute_script("document.getElementById(arguments[0]).click();", id_elemento)
+
+
 MAX_PASSI_MESE = 13
 
 
-def vai_al_mese(driver: WebDriver, voluto: date) -> bool:
-    """Porta la tabella sul mese voluto. ``True`` se ci è (o ci era già).
+class Raggiunto(StrEnum):
+    #: La tabella mostra il mese voluto.
+    SI = "si"
+    #: Il mese voluto è **prima** dei mesi aperti: sta nel «periodo chiuso».
+    CHIUSO = "chiuso"
+    NO = "no"
 
-    Il portale ricorda l'ultimo mese guardato. Qui si cerca il comando che
-    cambia mese (vedi ``_JS_COMANDO_MESE``), si preme, si aspetta che la prima
-    data della tabella cambi, e si ripete al massimo ``MAX_PASSI_MESE`` volte.
-    Se il comando non c'è o la data non si muove: ``False``, e il messaggio lo
-    dice al gestore (che può aprire il mese a mano)."""
+
+def vai_al_mese(driver: WebDriver, voluto: date) -> Raggiunto:
+    """Porta la scheda «Movimento periodo aperto» sul mese voluto, con le
+    frecce «Mese precedente/successivo».
+
+    Le frecce si muovono **solo fra i mesi aperti**: sul portale vero sono
+    disattivate quando di là non c'è niente di aperto. Se il mese voluto è
+    prima e «Mese precedente» è spento, il mese è nel periodo chiuso
+    (``Raggiunto.CHIUSO``): si legge da quella scheda, non dalle frecce."""
     for _ in range(MAX_PASSI_MESE):
-        prima = _prima_data_in_tabella(driver)
-        if prima is None or tabella_sul_mese_giusto(prima, voluto):
-            return True
-        verso = "indietro" if (voluto.year, voluto.month) < (prima.year, prima.month) else "avanti"
+        p = pagina(driver)
+        direzione = verso(p.mese, voluto)
+        if direzione is None:
+            return Raggiunto.SI if p.mese is not None else Raggiunto.NO
+        bottone = p.indietro if direzione == "indietro" else p.avanti
+        if bottone is None:
+            log.warning("frecce del mese non trovate (verso %s)", direzione)
+            return Raggiunto.NO
+        if not bottone.attivo:
+            return Raggiunto.CHIUSO if direzione == "indietro" else Raggiunto.NO
+        prima = p.mese
+        _premi(driver, bottone.id)
+        if _aspetta_pagina(driver, lambda q, m=prima: q.mese not in (None, m), 15) is None:
+            log.warning("il mese non è cambiato dopo «%s»", direzione)
+            return Raggiunto.NO
+    return Raggiunto.SI if verso(pagina(driver).mese, voluto) is None else Raggiunto.NO
+
+
+def apri_scheda(driver: WebDriver, nome: str) -> PaginaMovimenti | None:
+    """Apre una scheda del TabView dei movimenti (``nome`` in minuscolo) e
+    aspetta che il suo contenuto arrivi: il TabView è dinamico."""
+    p = pagina(driver)
+    indice = p.schede.get(nome)
+    if indice is None:
+        log.warning("scheda «%s» non trovata", nome)
+        return None
+    if p.scheda != nome:
         try:
-            comando = driver.execute_script(_JS_COMANDO_MESE, verso)
-        except WebDriverException:
-            return False
-        if comando is None:
-            log.warning("comando per cambiare mese non trovato (verso %s)", verso)
-            return False
-        driver.execute_script("arguments[0].click();", comando)
-        try:
-            WebDriverWait(driver, 15).until(
-                lambda d, p=prima: _prima_data_in_tabella(d) not in (None, p)
+            driver.execute_script(
+                "const i = arguments[0];"
+                "if (window.PF && PF('tabView')) { PF('tabView').select(i); return; }"
+                "document.querySelectorAll('#movimentiTabView .ui-tabs-header')[i].click();",
+                indice,
             )
-        except TimeoutException:
-            log.warning("il mese non è cambiato dopo il comando (verso %s)", verso)
-            return False
-    return tabella_sul_mese_giusto(_prima_data_in_tabella(driver), voluto)
+        except WebDriverException as exc:
+            log.warning("scheda «%s» non aperta: %s", nome, _in_breve(exc))
+            return None
+    return _aspetta_pagina(driver, lambda q: q.scheda == nome and bool(q.righe), 20)
 
 
-#: Tutte le righe del mese mostrato: data, celle, classi, titoli, pulsante.
-_JS_RIGHE = r"""
-const out = [];
-const corpo = document.getElementById('movimentiTabView:tblMovimenti_data');
-for (const tr of (corpo ? corpo.querySelectorAll('tr') : [])) {
-  const td = tr.querySelectorAll('td');
-  if (td.length < 2) continue;
-  out.push({
-    celle: [...td].map(c => (c.innerText || '').trim()),
-    classi: [...tr.querySelectorAll('[class*="fa-"]')].map(e => e.getAttribute('class') || ''),
-    titoli: [...tr.querySelectorAll('[title]')].map(e => e.getAttribute('title') || ''),
-    pulsante: !!tr.querySelector('button .fa-upload, button[class*="upload"]'),
-  });
+@dataclass
+class MeseLetto:
+    """Un mese di una struttura com'è sul portale."""
+
+    righe: list[RigaPortale] = field(default_factory=list)
+    #: Il mese sta nel «periodo chiuso»: comunicato, non si carica più.
+    chiuso: bool = False
+    #: «Invia comunicazione telematica mensile» è premibile (solo periodo aperto).
+    invio_possibile: bool | None = None
+    problema: str | None = None
+
+
+def leggi_mese(driver: WebDriver, voluto: date) -> MeseLetto:
+    """Il mese voluto, dalla pagina dei movimenti già aperta. Sola lettura:
+    frecce del mese e schede, nient'altro."""
+    raggiunto = vai_al_mese(driver, voluto)
+    etichetta = f"{MESI[voluto.month - 1]} {voluto.year}"
+    if raggiunto is Raggiunto.SI:
+        p = pagina(driver)
+        return MeseLetto(
+            [r for r in p.righe if (r.giorno.year, r.giorno.month) == (voluto.year, voluto.month)],
+            invio_possibile=p.invio_mensile.attivo if p.invio_mensile else None,
+        )
+    if raggiunto is Raggiunto.CHIUSO:
+        p = apri_scheda(driver, SCHEDA_CHIUSO)
+        if p is not None and verso(p.mese, voluto) is not None:
+            # Anche il periodo chiuso può avere le sue frecce: stessa regola.
+            vai_al_mese(driver, voluto)
+            p = pagina(driver)
+        righe = [] if p is None else [
+            r for r in p.righe if (r.giorno.year, r.giorno.month) == (voluto.year, voluto.month)
+        ]
+        # Si torna sul periodo aperto: è lì che lavora il resto del giro.
+        apri_scheda(driver, SCHEDA_APERTO)
+        if not righe:
+            return MeseLetto(chiuso=True, problema=messaggi.mese_chiuso_non_letto(etichetta))
+        return MeseLetto(righe, chiuso=True)
+    mostrato = pagina(driver).mese
+    return MeseLetto(problema=messaggi.mese_non_raggiunto(
+        f"{MESI[mostrato.month - 1]} {mostrato.year}" if mostrato else "un altro mese", etichetta,
+    ))
+
+
+# ─── la comunicazione telematica mensile ─────────────────────────────────────
+
+#: Il dialogo di conferma della comunicazione aperto adesso: il suo testo e
+#: l'id del «Sì, procedi» **dentro di lui** (nella pagina ce ne sono altri tre,
+#: di altri dialoghi — uno elimina i movimenti).
+_JS_DIALOGO_INVIO = r"""
+for (const d of document.querySelectorAll('.ui-confirm-dialog, .ui-dialog')) {
+  const titolo = (d.querySelector('.ui-dialog-title') || {}).textContent || '';
+  if (!/comunicazione telematica mensile/i.test(titolo)) continue;
+  const visibile = d.offsetParent !== null || getComputedStyle(d).display !== 'none';
+  if (!visibile) continue;
+  const si = [...d.querySelectorAll('button')].find(b => /s[iì],?\s*procedi/i.test(b.textContent || ''));
+  const no = [...d.querySelectorAll('button')].find(b => /no,?\s*annulla/i.test(b.textContent || ''));
+  return {testo: d.textContent || '', si: si ? si.id : '', no: no ? no.id : ''};
 }
-return out;
+return null;
 """
 
 
-def righe_lette(dati: object) -> list[tuple[date, bool, bool]]:
-    """Dalle righe grezze del portale: ``(giorno, già caricato, ha il
-    pulsante)``. Pura: la stessa regola di ``giorno_gia_caricato``."""
-    out: list[tuple[date, bool, bool]] = []
-    if not isinstance(dati, list):
-        return out
-    for r in dati:
-        if not isinstance(r, dict):
-            continue
-        celle = [str(x) for x in r.get("celle") or []]
-        if len(celle) < 2:
-            continue
-        m = re.search(r"(\d{2}/\d{2}/\d{4})", celle[1])
-        if m is None:
-            continue
-        try:
-            giorno = datetime.strptime(m.group(1), "%d/%m/%Y").date()  # noqa: DTZ007
-        except ValueError:
-            continue
-        classi = [str(x) for x in r.get("classi") or []]
-        titoli = [str(x) for x in r.get("titoli") or []]
-        out.append((giorno, giorno_gia_caricato(celle, classi, titoli), bool(r.get("pulsante"))))
-    return out
+def invia_comunicazione(
+    driver: WebDriver, id_turismatica: str, mese: date, *, prova: bool,
+    strutture_note: Collection[str],
+) -> tuple[bool, str]:
+    """La comunicazione telematica mensile di ``mese``. ``(riuscita, frase)``.
+
+    ⚠️ **Dopo, i dati del mese non si modificano più** (lo dice il portale nel
+    dialogo). Per questo: solo a mese concluso, solo se **ogni giorno** del
+    mese risulta inserito, solo se il dialogo nomina **quel** mese — e in prova
+    ci si ferma prima di premere «Invia». La verifica è rileggere la pagina:
+    il mese deve essere uscito dal periodo aperto."""
+    etichetta = f"{MESI[mese.month - 1]} {mese.year}"
+    problema = apri_movimenti(driver, id_turismatica, strutture_note=strutture_note)
+    if problema is not None:
+        return False, problema
+    if vai_al_mese(driver, mese) is not Raggiunto.SI:
+        return False, f"{etichetta} non è fra i mesi aperti: niente da comunicare."
+    p = pagina(driver)
+    mancano = mancanti_del_mese(p.righe, mese)
+    if mancano:
+        return False, (f"non invio la comunicazione di {etichetta}: sul portale mancano "
+                       f"ancora {len(mancano)} giorni (il primo è il {mancano[0]}).")
+    if p.invio_mensile is None or not p.invio_mensile.attivo:
+        return False, (f"il portale non permette ancora la comunicazione di {etichetta} "
+                       "(si fa a mese concluso, entro il 5 del mese dopo).")
+    if prova:
+        return True, f"comunicazione di {etichetta} pronta: in modalità vera la invierei."
+    _premi(driver, p.invio_mensile.id)
+    dialogo = None
+    with contextlib.suppress(TimeoutException, WebDriverException):
+        dialogo = WebDriverWait(driver, 15).until(
+            lambda d: d.execute_script(_JS_DIALOGO_INVIO) or False
+        )
+    if not isinstance(dialogo, dict) or not dialogo.get("si"):
+        return False, f"il portale non ha chiesto la conferma per {etichetta}: non ho inviato niente."
+    nel_dialogo = mese_nel_dialogo(str(dialogo.get("testo", "")))
+    if nel_dialogo != mese:
+        if dialogo.get("no"):
+            _premi(driver, str(dialogo["no"]))
+        log.warning("dialogo della comunicazione per %s, atteso %s", nel_dialogo, mese)
+        return False, (f"il portale proponeva di comunicare un altro mese invece di "
+                       f"{etichetta}: ho annullato.")
+    log.info("struttura=%s comunicazione mensile %s: premo «Sì, procedi»",
+             id_turismatica, f"{mese:%m/%Y}")
+    _premi(driver, str(dialogo["si"]))
+    time.sleep(2)
+    # La verifica: il mese non è più fra quelli aperti.
+    apri_movimenti(driver, id_turismatica, strutture_note=strutture_note)
+    if vai_al_mese(driver, mese) is Raggiunto.CHIUSO:
+        log.info("struttura=%s comunicazione mensile %s: confermata", id_turismatica, f"{mese:%m/%Y}")
+        return True, f"comunicazione di {etichetta} inviata."
+    log.warning("struttura=%s comunicazione mensile %s: non confermata", id_turismatica, f"{mese:%m/%Y}")
+    return False, (f"ho premuto «Sì, procedi» per {etichetta} ma il mese risulta ancora "
+                   "aperto: controlla sul portale nella scheda «Comunicazioni telematiche».")
 
 
-def leggi_mese(driver: WebDriver) -> list[tuple[date, bool, bool]]:
-    try:
-        return righe_lette(driver.execute_script(_JS_RIGHE))
-    except WebDriverException:
-        return []
+def mancanti_del_mese(righe: Sequence[RigaPortale], mese: date) -> list[int]:
+    """I giorni del mese che sul portale non risultano inseriti (pura)."""
+    fine = fine_mese(mese.year, mese.month).day
+    dentro = {r.giorno.day for r in righe
+              if (r.giorno.year, r.giorno.month) == (mese.year, mese.month) and r.caricato}
+    return [g for g in range(1, fine + 1) if g not in dentro]
 
 
 def _chiudi_dialog(driver: WebDriver) -> None:
@@ -616,83 +809,3 @@ def _chiudi_dialog(driver: WebDriver) -> None:
         driver.execute_script(
             "arguments[0].click();", driver.find_element(*_CHIUDI_DIALOG),
         )
-
-
-def _stato_struttura(driver: WebDriver) -> str | None:
-    """Lo stato in testata (``VALIDATA``, ``CESSATA``, …). ``None`` se assente."""
-    try:
-        el = driver.find_element(By.CSS_SELECTOR, "div.stato")
-        testo = el.text or (el.get_attribute("class") or "").split("stato")[-1]
-        return testo.strip().upper() or None
-    except (NoSuchElementException, WebDriverException):
-        return None
-
-
-def _prima_data_in_tabella(driver: WebDriver) -> date | None:
-    try:
-        testo = driver.find_element(
-            By.CSS_SELECTOR,
-            "#movimentiTabView\\:tblMovimenti_data tr td:nth-child(2)",
-        ).text.strip()
-        # noqa DTZ007: è la data della riga del portale, un giorno di
-        # calendario senza ora né fuso.
-        return datetime.strptime(testo, "%d/%m/%Y").date()  # noqa: DTZ007
-    except (NoSuchElementException, WebDriverException, ValueError):
-        return None
-
-
-#: La riga di un giorno in una chiamata sola: testo delle celle, classi delle
-#: icone, e i ``title`` (dove il portale scrive «File caricato: …»).
-_JS_RIGA = r"""
-const atteso = arguments[0];
-for (const tr of document.querySelectorAll('#movimentiTabView\\:tblMovimenti_data tr')) {
-  const td = tr.querySelectorAll('td');
-  if (td.length < 2 || !(td[1].innerText || '').trim().endsWith(atteso)) continue;
-  return {
-    celle: [...td].map(c => (c.innerText || '').trim()),
-    classi: [...tr.querySelectorAll('[class*="fa-"]')].map(e => e.getAttribute('class') || ''),
-    titoli: [...tr.querySelectorAll('[title]')].map(e => e.getAttribute('title') || ''),
-  };
-}
-return null;
-"""
-
-
-def _leggi_riga(
-    driver: WebDriver, giorno: date,
-) -> tuple[list[str], list[str], list[str]] | None:
-    """Celle, classi e titoli della riga di quel giorno, o ``None`` se non c'è.
-    Per testo della data, come il bottone: mai per posizione."""
-    try:
-        r = driver.execute_script(_JS_RIGA, f"{giorno:%d/%m/%Y}")
-    except WebDriverException:
-        return None
-    if not isinstance(r, dict):
-        return None
-    return (
-        [str(x) for x in r.get("celle") or []],
-        [str(x) for x in r.get("classi") or []],
-        [str(x) for x in r.get("titoli") or []],
-    )
-
-
-def _bottone_upload_della_riga(driver: WebDriver, giorno: date) -> object | None:
-    """Il bottone «carica» della riga di quel giorno, o ``None`` se non c'è.
-
-    L'accoppiamento è **per testo della data** nella seconda colonna, non per
-    posizione: la posizione dipende da come il portale ordina le righe, e
-    sbagliare riga significa dichiarare il movimento di un giorno su un altro."""
-    atteso = f"{giorno:%d/%m/%Y}"
-    for riga in driver.find_elements(By.CSS_SELECTOR, _TABELLA_CSS):
-        try:
-            celle = riga.find_elements(By.TAG_NAME, "td")
-            if len(celle) < 2 or not celle[1].text.strip().endswith(atteso):
-                continue
-            return riga.find_element(
-                By.XPATH, ".//button[.//span[contains(@class,'fa-upload')]]"
-            )
-        except NoSuchElementException:
-            return None
-        except StaleElementReferenceException:
-            continue
-    return None

@@ -37,6 +37,9 @@ class StrutturaConf:
     comune: str = ""
     tipologia: str = ""
     stato_portale: str = ""
+    #: Codici dall'intestazione della pagina dei movimenti ('' se non letti).
+    cir: str = ""
+    cin: str = ""
     #: Inserita a mano perché la lettura automatica non l'ha trovata.
     manuale: bool = False
     #: ``AAAA-MM`` → stato dei giorni letto sul portale.
@@ -51,6 +54,8 @@ class StrutturaConf:
             "comune": self.comune,
             "tipologia": self.tipologia,
             "stato_portale": self.stato_portale,
+            "cir": self.cir,
+            "cin": self.cin,
             "manuale": self.manuale,
             "mesi": {k: m.da_json() for k, m in sorted(self.mesi.items())},
             "avviso": self.avviso,
@@ -66,6 +71,8 @@ class StrutturaConf:
             comune=str(d.get("comune", "")),
             tipologia=str(d.get("tipologia", "")),
             stato_portale=str(d.get("stato_portale", "")),
+            cir=str(d.get("cir", "")),
+            cin=str(d.get("cin", "")),
             manuale=bool(d.get("manuale", False)),
             mesi={k: StatoMese.dal_json(k, v) for k, v in mesi_raw.items()},
             avviso=str(d.get("avviso", "")),

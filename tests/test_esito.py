@@ -61,7 +61,7 @@ def test_una_struttura_rotta_non_nasconde_le_altre() -> None:
     buona.segna(date(2026, 9, 1), Esito.CARICATO)
     rotta.saltata = "la tabella dei movimenti non si è aperta"
     testo = riepilogo([buona, rotta], "settembre 2026", prova=False)
-    assert "Il Melograno — 1 giorni caricati" in testo
+    assert "Il Melograno — 1 giorno caricato" in testo
     assert "Le Querce — non fatta" in testo
 
 

@@ -33,6 +33,11 @@ class StatoMese:
     #: Solo i giorni **letti** sul portale; un giorno assente è sconosciuto.
     giorni: dict[int, StatoGiorno] = field(default_factory=dict)
     letto_il: datetime | None = None
+    #: Il mese sta nel «periodo chiuso» del portale: la comunicazione mensile
+    #: è fatta e i movimenti non si toccano più.
+    chiuso: bool = False
+    #: «Invia comunicazione telematica mensile» era premibile alla lettura.
+    invio_possibile: bool | None = None
 
     @property
     def chiave(self) -> str:
@@ -47,7 +52,10 @@ class StatoMese:
 
     def mancanti(self, oggi: date) -> list[int]:
         """I giorni passati che sul portale non ci sono (oggi e il futuro no:
-        il movimento di un giorno si chiude a fine giornata)."""
+        il movimento di un giorno si chiude a fine giornata). Un mese chiuso
+        non ne ha: non si caricano più."""
+        if self.chiuso:
+            return []
         ultimo = _ultimo_giorno_utile(self.anno, self.mese, oggi)
         return [
             g for g in range(1, ultimo + 1)
@@ -58,6 +66,8 @@ class StatoMese:
         return {
             "giorni": {str(g): s.value for g, s in sorted(self.giorni.items())},
             "letto_il": self.letto_il.isoformat(timespec="minutes") if self.letto_il else None,
+            "chiuso": self.chiuso,
+            "invio_possibile": self.invio_possibile,
         }
 
     @classmethod
@@ -70,7 +80,26 @@ class StatoMese:
             anno, mese,
             {int(g): StatoGiorno(s) for g, s in giorni_raw.items()},
             datetime.fromisoformat(letto) if isinstance(letto, str) else None,
+            chiuso=bool(dati.get("chiuso", False)),
+            invio_possibile=dati.get("invio_possibile") if isinstance(
+                dati.get("invio_possibile"), bool) else None,
         )
+
+    def comunicazione(self, oggi: date) -> str:
+        """Lo stato della comunicazione mensile, in parole da gestore:
+        ``comunicato`` · ``da_comunicare`` (mese concluso, ancora aperto) ·
+        ``in_corso`` (il mese non è finito) · ``scaduta`` (oltre il 5 del mese
+        dopo e ancora aperto)."""
+        if self.chiuso:
+            return "comunicato"
+        if (self.anno, self.mese) >= (oggi.year, oggi.month):
+            return "in_corso"
+        return "scaduta" if oggi > scadenza_comunicazione(self.anno, self.mese) else "da_comunicare"
+
+
+def scadenza_comunicazione(anno: int, mese: int) -> date:
+    """L'ultimo giorno utile per la comunicazione mensile: il 5 del mese dopo."""
+    return date(anno + (mese == 12), mese % 12 + 1, 5)
 
 
 def _ultimo_giorno_utile(anno: int, mese: int, oggi: date) -> int:
@@ -84,10 +113,13 @@ def _ultimo_giorno_utile(anno: int, mese: int, oggi: date) -> int:
 
 def stato_dalle_righe(
     righe: Iterable[tuple[date, bool, bool]], *, anno: int, mese: int,
-    letto_il: datetime,
+    letto_il: datetime, chiuso: bool = False, invio_possibile: bool | None = None,
 ) -> StatoMese:
-    """Dalle righe lette sul portale: ``(giorno, già caricato, ha il pulsante)``."""
-    s = StatoMese(anno, mese, letto_il=letto_il)
+    """Dalle righe lette sul portale: ``(giorno, già caricato, ha il pulsante)``.
+
+    Un mese **chiuso** porta i giorni come sono: se ne manca uno lo si vede,
+    ma ``mancanti`` non lo propone (non si carica più)."""
+    s = StatoMese(anno, mese, letto_il=letto_il, chiuso=chiuso, invio_possibile=invio_possibile)
     for giorno, caricato, pulsante in righe:
         if (giorno.year, giorno.month) != (anno, mese):
             continue
@@ -130,6 +162,13 @@ class VocePiano:
     #: File di giorni futuri: non si caricano.
     futuri: list[int]
     letto_il: datetime | None = None
+    #: Il mese è chiuso sul portale: niente da caricare, per costruzione.
+    chiuso: bool = False
+    #: Dopo il caricamento si può inviare la comunicazione mensile: mese
+    #: concluso, ancora aperto, entro il 5 del mese dopo, e ogni giorno o è già
+    #: sul portale o è fra quelli da caricare. **Lo decide il gestore**: qui si
+    #: dice solo che la domanda ha senso.
+    comunicabile: bool = False
 
     @property
     def etichetta_mese(self) -> str:
@@ -148,6 +187,9 @@ class VocePiano:
     @property
     def testo(self) -> str:
         mese = self.etichetta_mese.capitalize()
+        if self.chiuso:
+            return (f"{mese}, {self.nome}: il mese è già chiuso sul portale (comunicazione "
+                    "mensile fatta). Non si carica più niente.")
         if self.presenti is None:
             return (
                 f"{mese}, {self.nome}: {_giorni(len(self.da_caricare))} nei file. "
@@ -185,15 +227,24 @@ def costruisci(
             utili = [g for g in con_file if g <= ultimo]
             futuri = [g for g in con_file if g > ultimo]
             stato = stati.get(ident, {}).get(f"{anno:04d}-{mese:02d}")
+            fine = fine_mese(anno, mese).day
+            nei_termini = (anno, mese) < (oggi.year, oggi.month) and oggi <= scadenza_comunicazione(anno, mese)
+            if stato is not None and stato.chiuso:
+                voci.append(VocePiano(ident, nome, anno, mese, con_file, stato.caricati(),
+                                      [], [], futuri, stato.letto_il, chiuso=True))
+                continue
             if stato is None or not stato.giorni:
-                voci.append(VocePiano(ident, nome, anno, mese, con_file, None,
-                                      utili, [], futuri))
+                voci.append(VocePiano(
+                    ident, nome, anno, mese, con_file, None, utili, [], futuri,
+                    comunicabile=nei_termini and set(range(1, fine + 1)) <= set(con_file),
+                ))
                 continue
             presenti = stato.caricati()
+            da_caricare = [g for g in utili if g not in presenti]
             voci.append(VocePiano(
-                ident, nome, anno, mese, con_file, presenti,
-                [g for g in utili if g not in presenti],
+                ident, nome, anno, mese, con_file, presenti, da_caricare,
                 [g for g in stato.mancanti(oggi) if g not in con_file],
                 futuri, stato.letto_il,
+                comunicabile=nei_termini and set(range(1, fine + 1)) <= set(presenti) | set(da_caricare),
             ))
     return voci

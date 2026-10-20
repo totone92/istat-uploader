@@ -41,6 +41,37 @@ personale scritta `~`.
 
 ---
 
+## v1.3.0 — il portale vero (20/10/2026)
+
+La lettura delle strutture della v1.2.0 non ha funzionato alla prima prova di
+Marco. Con due pagine **vere** del portale (ripulite: nomi e numeri inventati
+ma coerenti) i selettori sono allineati a quelle. Le copie stanno in
+`tests/fixtures/turismatica/` e i test in `tests/test_pagine_vere.py`.
+
+| pezzo | com'è davvero | dove |
+|---|---|---|
+| elenco strutture | `prehome.xhtml`: `selectOneMenu` PrimeFaces, `<select>` nascosto con id `…_input`; `option value` = idStruttura, testo = nome (spazi in coda). La v1.2.0 cercava «strutt» nell'id e non trovava niente | `riconoscimento.strutture` / `_select_di_strutture` (vuole un titolo che parli di strutture: nella pagina dei movimenti c'è la tendina delle **provenienze**) |
+| intestazione | `div.nomestruttura`: nome, «(tipologia - …)», «Comune: …», CIR, CIN; `div.stato VALIDATA`; l'id dai link della pagina (`dettagliostruttura.xhtml?idStruttura=`, `par_STRU%3D`) | `riconoscimento.intestazione` |
+| tabella e bottoni | letta **in Python dall'HTML** (`driver.page_source`), non più con un JavaScript dentro Chrome: la stessa regola nei test e sul portale. Colonne per intestazione, bottoni per `title`/icona; il bottone di caricamento c'è solo sul primo giorno non inserito | `pagina_movimenti.leggi_pagina` |
+| entrare in una struttura | GET diretta `?idStruttura=`; se apre un'altra struttura o nessuna tabella, `prehome` → widget `selectValue` → «Accedi», come il gestore | `portale.apri_movimenti` |
+| mesi | frecce `monthButtonText` solo fra mesi **aperti** (spente nel campione); un mese prima di quelli è nel periodo chiuso → scheda «Movimento periodo chiuso» (TabView **dinamico**, `PF('tabView').select(i)`) | `portale.vai_al_mese` → `Raggiunto.CHIUSO`, `portale.leggi_mese` |
+| comunicazione mensile | «Invia comunicazione telematica mensile» nelle «Azioni» del periodo aperto; dialogo `cdNotifica` «…per il mese Ottobre 2026…» con «Sì, procedi» / «No, annulla». Nella pagina ci sono altri tre «Sì, procedi» (uno **elimina** i movimenti) | `portale.invia_comunicazione`: chiesta dal gestore nel piano, solo a mese concluso ed entro il 5, solo con tutti i giorni dentro, solo se il dialogo nomina quel mese; in prova si ferma prima del bottone; verifica = il mese è passato nel periodo chiuso |
+| abbinamento dal CIN | il CIN contiene l'idStruttura (ultime 6 cifre, zeri davanti) nel campione | `abbinamento.cin_affidabile`: il file col CIN esatto di una struttura si abbina da solo **solo se** la regola regge su **tutte** le strutture lette |
+
+**Decisione: «nessun nuovo movimento fino a questo giorno» non si usa.** Il
+portale conferma presenze **e unità occupate** dell'ultimo giorno compilato per
+tutto l'intervallo: equivale a un file a zero movimenti solo se le unità non
+cambiano, e sbaglia molti giorni in un gesto. Si carica il file di ogni giorno.
+
+**Provato qui:** 196 test (17 sulle pagine vere). I tre JavaScript rimasti
+(scelta in `prehome`, cambio scheda, dialogo della comunicazione) eseguiti in
+Chromium headless sulle pagine vere, con PrimeFaces finto, invio dei moduli
+bloccato e rete chiusa. **Non provato:** il contenuto della scheda «Movimento
+periodo chiuso» (dinamica: nel campione è vuota), la GET diretta dopo il login,
+la comunicazione mensile vera, il cambio di mese con frecce accese.
+
+---
+
 ## v1.2.0 — strutture lette dal portale, interfaccia nuova (20/10/2026)
 
 Dopo la prima prova vera (struttura scritta a mano, «123» inventato, giro fermo
@@ -59,7 +90,7 @@ strutture non si scrivono, si leggono dal portale**, e Tkinter è sostituito da
 | i messaggi | `messaggi.py` | «La struttura 123 non è fra quelle del tuo account Turismatica» al posto della tabella |
 | la finestra | `finestra.py` + `ui/` | screenshot in Chromium headless, chiaro e scuro, con gli stati veri di `Api`; sul runner Windows `--autoverifica-finestra` apre la finestra **vera** e aspetta che il JS parli col Python |
 
-⚠️ **Non visto mai, da sistemare con la prima copia vera**: la pagina con
+⚠️ **(superato dalla v1.3.0)** Non visto mai, da sistemare con la prima copia vera: la pagina con
 l'elenco delle strutture e il comando che cambia mese nella pagina dei
 movimenti. Se la lettura fallisce, l'app salva `pagina-strutture-*.html` /
 `pagina-movimenti-*.html` (ripulite) accanto al registro e lascia inserire i
@@ -85,7 +116,7 @@ Queste cose **non sono verificate** e vanno provate su un PC vero:
 
 **Cosa invece è provato**, e non a parole:
 
-- **171 test** su tutto ciò che non è il browser: i nomi dei file (beb,
+- **196 test** su tutto ciò che non è il browser: i nomi dei file (beb,
   generati da HostLab col CIN, script originale), lo zip, il periodo, il
   riepilogo, le regole del portale, le strutture salvate, **la modalità prova**
   (con un finto della *nostra* interfaccia `Passi`, non del portale) e il
@@ -253,6 +284,7 @@ uploader_turismatica/
 ├── ui/              l'interfaccia: index.html, app.css, app.js (locali)
 ├── sessione.py      il Portale (interfaccia) e la sua versione Selenium
 ├── riconoscimento.py le strutture dalla pagina + la copia ripulita — PURO
+├── pagina_movimenti.py la pagina dei movimenti letta dall'HTML (righe, frecce, schede, invio mensile) — PURO
 ├── abbinamento.py   file → struttura, senza indovinare — PURO
 ├── piano.py         stato dei giorni e piano — PURO
 ├── messaggi.py      cosa dire al gestore — PURO
@@ -345,7 +377,7 @@ plausibilità della data, che è un indovinello. C'è un test apposta.
 
 ```bash
 uv venv && uv pip install -r requirements-dev.txt
-.venv/bin/python -m pytest -q          # 171 test
+.venv/bin/python -m pytest -q          # 196 test
 .venv/bin/python scripts/zip_di_prova.py dist/prova-settembre-2026.zip
 .venv/bin/python -m ruff check .
 .venv/bin/python -m uploader_turismatica            # la finestra

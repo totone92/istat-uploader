@@ -70,31 +70,40 @@ Windows non lo conosce e prova a fermarlo. È normale.
 
 1. **Primo avvio → «Collega Turismatica».** Si apre Chrome sul portale: entri
    con SPID o CIE, con calma (non c'è nessuna scadenza).
-2. **Il programma legge le tue strutture**, in sola lettura: quelle che il
-   portale mostra al tuo accesso, con numero, comune e tipologia.
+2. **Il programma legge le tue strutture**, in sola lettura, dalla pagina
+   «Seleziona la struttura su cui vuoi operare» (la tendina del portale).
 3. **«Gestisci una struttura o più strutture?»**: la risposta è già proposta in
    base a quante ne ha trovate.
-4. **Per ogni struttura guarda i giorni** del mese scorso e di quello in corso:
-   quali sono già caricati e quali mancano. Non preme niente che scriva.
+4. **Per ogni struttura apre la pagina dei movimenti**: dall'intestazione
+   prende comune, tipologia, CIR e CIN; dalla tabella, quali giorni del mese
+   scorso e di quello in corso sono già caricati e quali mancano. Il mese
+   scorso, se è già chiuso, lo legge dalla scheda «Movimento periodo chiuso».
+   Non preme niente che scriva.
 5. **Riepilogo**: le strutture con lo stato dei giorni. Togli quelle che non
    gestisci, premi **Conferma**. Solo ora si salva qualcosa (nella cartella dati
    di Windows, mai password né dati SPID).
 6. **Da qui in poi** il programma si apre sulle tue strutture: giorni caricati
    (verde), mancanti (rosso), e la zona dove **trascinare lo zip**.
 7. **I file si abbinano da soli** alla struttura dal nome scritto dentro i
-   file; se non è chiaro, il programma **chiede** (e, se vuoi, si ricorda la
-   risposta).
+   file, oppure dal **CIN** nel nome del file (quelli di HostLab). Il CIN vale
+   solo se per **tutte** le tue strutture il CIN letto sul portale contiene il
+   numero della struttura. Se non è chiaro, il programma **chiede** (e, se
+   vuoi, si ricorda la risposta).
 8. **Il piano prima di partire**: «Settembre 2026, Casa Lavanda: 28 giorni già
-   presenti, 2 da caricare (12 e 19)». Poi parte, giorno per giorno.
+   presenti, 2 da caricare (12 e 19)». Poi parte, giorno per giorno, in fila:
+   il portale apre il caricamento solo sul primo giorno non ancora inserito.
+9. **La comunicazione mensile**, se spunti la casella nel piano: ultimo passo,
+   a mese concluso ed entro il 5 del mese dopo, solo se tutti i giorni
+   risultano caricati. Il programma controlla che la conferma del portale
+   nomini proprio quel mese, poi verifica che il mese risulti chiuso.
 
 «**Aggiorna le mie strutture**» rifà i passi 1–5 quando vuoi, per esempio se
 ne aggiungi una.
 
 ### Se le strutture non si leggono da sole
 
-La pagina del portale con l'elenco delle strutture non si è potuta vedere
-durante lo sviluppo, quindi la lettura automatica potrebbe non riuscire al
-primo colpo. In quel caso il programma:
+La lettura è allineata alle pagine vere del portale (ottobre 2026). Se il
+portale cambia e la lettura non riesce, il programma:
 
 - lo dice, e ti fa **scrivere a mano** il numero di ogni struttura (lo trovi
   nell'indirizzo della pagina dei movimenti, dopo `idStruttura=`);
@@ -166,6 +175,9 @@ Nell'ordine. Se un passo non torna, **fermati lì** e manda registro e copie.
    - ❌ se una struttura dice «Il portale mostra … e non sono riuscito a passare
      a …»: il cambio di mese non ha funzionato. Puoi proseguire lo stesso;
      segnalalo, e manda il file `pagina-movimenti-….html` se c'è.
+   - controlla anche **comune, tipologia e CIN** sotto il nome: vengono
+     dall'intestazione dei movimenti, e il mese scorso deve dire «comunicato»
+     o «da comunicare» come sul portale.
 4. **Conferma**.
 
 ### 2. Lo zip di prova, in prova
@@ -197,3 +209,14 @@ programma e fai «Aggiorna le mie strutture»: quel giorno ora è verde.
 ### 5. Il mese intero
 
 Un giro in prova, poi in vera, guardando lo schermo la prima volta.
+
+### 6. La comunicazione mensile (solo fra il 1° e il 5 del mese)
+
+1. In prova, con lo zip del mese appena finito: nel piano spunta «Alla fine
+   invia anche la comunicazione mensile». L'esito deve dire «comunicazione di
+   … pronta: in modalità vera la invierei».
+   - ❌ se dice che mancano giorni o che il portale non la permette: controlla
+     sul portale, e manda il registro.
+2. Solo quando il mese è a posto: lo stesso giro in modalità vera. Poi sul
+   portale il mese deve stare in «Movimento periodo chiuso», e nel programma
+   («Aggiorna le mie strutture») deve risultare **comunicato**.

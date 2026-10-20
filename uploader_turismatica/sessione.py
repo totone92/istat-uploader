@@ -33,6 +33,7 @@ from uploader_turismatica.portale import (
     apri_portale,
     carica_struttura,
     leggi_mese,
+    pagina,
     sembra_dentro,
 )
 from uploader_turismatica.riconoscimento import StrutturaTrovata
@@ -54,6 +55,9 @@ class LetturaMesi:
     mesi: dict[str, StatoMese] = field(default_factory=dict)
     #: Il problema, in parole da gestore ('' se tutto letto).
     avviso: str = ""
+    #: L'intestazione della pagina dei movimenti (nome, comune, tipologia,
+    #: CIR, CIN), se si è aperta.
+    struttura: StrutturaTrovata | None = None
 
 
 class Portale(Protocol):
@@ -62,11 +66,38 @@ class Portale(Protocol):
     def leggi_strutture(self) -> LetturaStrutture: ...
     def leggi_mesi(
         self, id_turismatica: str, mesi: Sequence[date], *, strutture_note: Collection[str],
-    ) -> LetturaMesi: ...
+    ) -> LetturaMesi:
+        out = LetturaMesi()
+        problema = apri_movimenti(self.driver, id_turismatica, strutture_note=strutture_note)
+        out.struttura = pagina(self.driver).struttura
+        if problema is not None:
+            out.avviso = problema
+            log.warning("struttura %s: %s", id_turismatica, problema)
+            self._salva_copia(f"pagina-movimenti-{id_turismatica}", self._sorgente())
+            return out
+        for mese in mesi:
+            letto = leggi_mese(self.driver, mese)
+            if letto.righe:
+                stato = stato_dalle_righe(
+                    [(r.giorno, r.caricato, bool(r.id_carica)) for r in letto.righe],
+                    anno=mese.year, mese=mese.month, letto_il=self._ora(),
+                    chiuso=letto.chiuso, invio_possibile=letto.invio_possibile,
+                )
+                out.mesi[stato.chiave] = stato
+            elif letto.chiuso:
+                stato = StatoMese(mese.year, mese.month, letto_il=self._ora(), chiuso=True)
+                out.mesi[stato.chiave] = stato
+            if letto.problema is not None:
+                log.warning("struttura %s, %s: %s", id_turismatica, f"{mese:%m/%Y}", letto.problema)
+                if not letto.chiuso:
+                    out.avviso = letto.problema
+                    self._salva_copia(f"pagina-movimenti-{id_turismatica}", self._sorgente())
+        return out
+
     def carica(
         self, *, id_turismatica: str, etichetta: str, sorgente: Sorgente,
-        periodo: Periodo, prova: bool, strutture_note: Collection[str],
-        avanzamento: Callable[[str], None],
+        periodo: Periodo | None, prova: bool, strutture_note: Collection[str],
+        comunica: date | None, avanzamento: Callable[[str], None],
     ) -> EsitoStruttura: ...
     def chiudi(self) -> None: ...
 
@@ -92,14 +123,22 @@ class SessioneSelenium:
         return self._driver is not None and sembra_dentro(self._driver)
 
     def leggi_strutture(self) -> LetturaStrutture:
-        """L'elenco dalla pagina in cui il gestore è atterrato; se lì non c'è,
-        dalla pagina d'ingresso e dai link che parlano di strutture (al più
-        tre, solo ``href`` veri)."""
-        visitate: list[str] = []
+        """L'elenco da ``prehome.xhtml`` («Seleziona la struttura su cui vuoi
+        operare»), dove il portale lo mostra dopo l'accesso. Se lì non c'è
+        (un account con una struttura sola potrebbe saltare la scelta), dalla
+        pagina in cui si è atterrati e dai link che parlano di strutture (al
+        più tre, solo ``href`` veri)."""
+        atterrata = self._sorgente()
+        visitate = [PREHOME_URL]
+        with contextlib.suppress(WebDriverException):
+            self.driver.get(PREHOME_URL)
         pagina = self._sorgente()
         trovate = riconoscimento.strutture(pagina)
         if not trovate:
-            candidati = [PREHOME_URL, *riconoscimento.link_da_seguire(pagina, self._url())]
+            pagina = atterrata
+            trovate = riconoscimento.strutture(pagina)
+        if not trovate:
+            candidati = riconoscimento.link_da_seguire(pagina, self._url())
             for url in candidati:
                 if url in visitate:
                     continue
@@ -147,13 +186,13 @@ class SessioneSelenium:
 
     def carica(
         self, *, id_turismatica: str, etichetta: str, sorgente: Sorgente,
-        periodo: Periodo, prova: bool, strutture_note: Collection[str],
-        avanzamento: Callable[[str], None],
+        periodo: Periodo | None, prova: bool, strutture_note: Collection[str],
+        comunica: date | None, avanzamento: Callable[[str], None],
     ) -> EsitoStruttura:
         return carica_struttura(
             self.driver, id_turismatica=id_turismatica, etichetta=etichetta,
             sorgente=sorgente, periodo=periodo, prova=prova,
-            strutture_note=strutture_note, avanzamento=avanzamento,
+            strutture_note=strutture_note, comunica=comunica, avanzamento=avanzamento,
         )
 
     def chiudi(self) -> None:

@@ -10,16 +10,23 @@ Ogni file ISTAT porta due indizi:
 * **l'id nel nome del file**, ``schedine_istat_<id>_<AAAAMMGG>.txt``. ⚠️ **Non
   è il numero Turismatica**: è l'id della struttura su beb.it, o il CIN in
   HostLab. Confrontarlo col numero Turismatica sarebbe proprio indovinare —
-  due numeri di sistemi diversi possono coincidere per caso.
+  due numeri di sistemi diversi possono coincidere per caso. **Il CIN invece
+  il portale lo mostra** (intestazione dei movimenti): un file che porta nel
+  nome esattamente il CIN di una struttura è di quella struttura.
 
 Quindi la regola, in ordine:
 
 1. lo **zip di prova** non si abbina mai da solo (la sua struttura non esiste);
 2. ciò che il gestore ha già **confermato una volta** (``alias``: id nel nome
    o nome nel file → numero Turismatica) vale da lì in poi;
-3. un nome nel file **uguale** (a meno di maiuscole, accenti e punteggiatura)
+3. il **CIN** nel nome del file uguale al CIN letto sul portale — **solo se**
+   la lettura ha confermato su **tutte** le strutture del gestore che il CIN
+   contiene il numero Turismatica (ultime 6 cifre, zeri davanti:
+   ``IT054039B403012345`` ↔ ``12345``; :func:`cin_affidabile`). Una sola
+   struttura che non torna, o senza CIN letto, e il CIN non abbina niente;
+4. un nome nel file **uguale** (a meno di maiuscole, accenti e punteggiatura)
    al nome di **una sola** struttura del portale;
-4. tutto il resto si **chiede**, con le strutture più somiglianti in cima. Anche
+5. tutto il resto si **chiede**, con le strutture più somiglianti in cima. Anche
    quando il gestore ha una struttura sola: la proposta è pronta, ma il clic è
    suo. Due gruppi diversi che finirebbero sulla stessa struttura si chiedono
    entrambi.
@@ -136,6 +143,28 @@ def raggruppa(file: Sequence[Path], *, marcatore_prova: bool) -> list[Gruppo]:
 class StrutturaNota:
     id_turismatica: str
     nome: str
+    #: Il CIN letto sul portale ('' se non letto).
+    cin: str = ""
+
+
+def _codice(testo: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", testo.upper())
+
+
+def cin_affidabile(strutture: Sequence[StrutturaNota]) -> bool:
+    """Il CIN di **ogni** struttura finisce con il suo numero Turismatica
+    (ultime 6 cifre, con gli zeri davanti)? È la condizione per abbinare i
+    file dal CIN: una regola vista su un campione si usa solo se la lettura
+    la conferma su tutte, altrimenti non si usa per nessuna."""
+    if not strutture:
+        return False
+    for s in strutture:
+        cin = _codice(s.cin)
+        if len(s.id_turismatica) > 6 or not s.id_turismatica.isdigit():
+            return False
+        if len(cin) < 6 or cin[-6:] != s.id_turismatica.zfill(6):
+            return False
+    return True
 
 
 @dataclass
@@ -143,7 +172,7 @@ class Abbinamento:
     gruppo: Gruppo
     #: Il numero Turismatica scelto, o ``None`` se va chiesto.
     id_turismatica: str | None
-    #: ``prova`` · ``ricordato`` · ``nome`` · ``da_chiedere``
+    #: ``prova`` · ``ricordato`` · ``cin`` · ``nome`` · ``da_chiedere``
     motivo: str
     #: Le strutture da proporre, le più somiglianti prima.
     proposte: list[str] = field(default_factory=list)
@@ -157,6 +186,10 @@ def abbina(
     alias: Mapping[str, str],
 ) -> list[Abbinamento]:
     ids = {s.id_turismatica for s in strutture}
+    per_cin = (
+        {_codice(s.cin): s.id_turismatica for s in strutture}
+        if cin_affidabile(strutture) else {}
+    )
     risultato: list[Abbinamento] = []
     for g in gruppi:
         proposte = [
@@ -178,6 +211,10 @@ def abbina(
         )
         if ricordato is not None:
             risultato.append(Abbinamento(g, ricordato, "ricordato"))
+            continue
+        dal_cin = per_cin.get(_codice(g.id_nel_nome or ""))
+        if dal_cin is not None:
+            risultato.append(Abbinamento(g, dal_cin, "cin"))
             continue
         uguali = [s for s in strutture if normalizza(s.nome) == normalizza(g.nome_nel_file)]
         if len(uguali) == 1 and normalizza(g.nome_nel_file):

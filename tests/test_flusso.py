@@ -34,8 +34,10 @@ ORA = datetime(2026, 10, 20, 9, 30)
 
 class PortaleFinto:
     def __init__(self, strutture: list[StrutturaTrovata], *, caricati_settembre: set[int],
-                 avvisi: dict[str, str] | None = None) -> None:
+                 avvisi: dict[str, str] | None = None, cin: dict[str, str] | None = None) -> None:
         self.strutture = strutture
+        #: Il CIN che l'intestazione dei movimenti mostra, per struttura.
+        self.cin = cin or {}
         self.caricati = caricati_settembre
         self.avvisi = avvisi or {}
         self.chiamate: list[str] = []
@@ -61,15 +63,22 @@ class PortaleFinto:
         settembre = StatoMese(2026, 9, {
             g: StatoGiorno.CARICATO if g in self.caricati else StatoGiorno.DA_FARE
             for g in range(1, 31)}, ORA)
-        return LetturaMesi({"2026-09": settembre})
+        testata = StrutturaTrovata(id_turismatica, "NOME DALL'INTESTAZIONE", "PERUGIA",
+                                   "Affittacamere", "VALIDATA", cin=self.cin.get(id_turismatica, ""))
+        return LetturaMesi({"2026-09": settembre}, struttura=testata)
 
     def carica(self, *, id_turismatica: str, etichetta: str, sorgente: Sorgente,
-               periodo: Periodo, prova: bool, strutture_note: Collection[str],
-               avanzamento: Callable[[str], None]) -> EsitoStruttura:
-        self.caricamenti.append({"id": id_turismatica, "periodo": (periodo.dal, periodo.al),
-                                 "prova": prova, "di_prova": sorgente.di_prova})
+               periodo: Periodo | None, prova: bool, strutture_note: Collection[str],
+               comunica: date | None, avanzamento: Callable[[str], None]) -> EsitoStruttura:
+        self.caricamenti.append({
+            "id": id_turismatica, "periodo": (periodo.dal, periodo.al) if periodo else None,
+            "prova": prova, "di_prova": sorgente.di_prova, "comunica": comunica,
+        })
         e = EsitoStruttura(etichetta=etichetta, id_turismatica=id_turismatica)
-        for g in periodo.giorni:
+        if comunica is not None:
+            e.comunicazione_riuscita = True
+            e.comunicazione = "pronta" if prova else "inviata"
+        for g in (periodo.giorni if periodo else []):
             avanzamento(f"{g:%d/%m/%Y}")
             if g.day in self.caricati:
                 e.segna(g, Esito.GIA_CARICATO)
@@ -307,3 +316,73 @@ def test_un_file_che_non_e_uno_zip_lo_dice(tmp_path: Path) -> None:
     (tmp_path / "foto.jpg").write_bytes(b"x")
     a.usa_zip(str(tmp_path / "foto.jpg"))
     assert "Scegli lo zip dei file ISTAT" in _aspetta(a, "principale")["avviso"]
+
+
+# ─── l'intestazione dei movimenti, il CIN, la comunicazione mensile ─────────
+
+CIN = {"12345": "IT054039B403012345", "23456": "IT054056C203023456"}
+
+
+def test_l_intestazione_completa_la_struttura_ma_il_nome_resta_quello_dell_elenco(
+    tmp_path: Path,
+) -> None:
+    _collega(tmp_path, PortaleFinto([StrutturaTrovata("12345", "CASA LAVANDA")],
+                                    caricati_settembre=set(), cin=CIN))
+    (s,) = json.loads((tmp_path / "configurazione.json").read_text())["strutture"]
+    assert (s["nome"], s["comune"], s["tipologia"], s["cin"]) == (
+        "CASA LAVANDA", "PERUGIA", "Affittacamere", "IT054039B403012345")
+
+
+def test_i_file_col_cin_si_abbinano_da_soli_se_la_regola_regge_su_tutte(tmp_path: Path) -> None:
+    portale = PortaleFinto(DUE, caricati_settembre=set(), cin=CIN)
+    a = _collega(tmp_path, portale)
+    a.usa_zip(str(_zip(tmp_path, "Un nome che il portale non conosce", CIN["23456"], range(1, 4))))
+    assert _aspetta(a, "piano")["voci"][0]["struttura"] == "Agriturismo Le Ginestre"
+
+
+def test_se_un_cin_non_contiene_il_numero_il_cin_non_abbina_niente(tmp_path: Path) -> None:
+    portale = PortaleFinto(DUE, caricati_settembre=set(),
+                           cin={**CIN, "23456": "IT054056C203099999"})
+    a = _collega(tmp_path, portale)
+    a.usa_zip(str(_zip(tmp_path, "Un nome che il portale non conosce", CIN["12345"], range(1, 4))))
+    (g,) = _aspetta(a, "abbina")["gruppi"]
+    assert not g["deciso"]
+
+
+def _api_al(tmp_path: Path, portale: PortaleFinto, oggi: date) -> Api:
+    return Api(portale=lambda: portale, percorso_configurazione=tmp_path / "configurazione.json",
+               percorso_registro=None, oggi=lambda: oggi, ora=lambda: ORA)
+
+
+def test_la_comunicazione_mensile_si_chiede_e_va_in_fondo_al_giro(tmp_path: Path) -> None:
+    portale = PortaleFinto(DUE[:1], caricati_settembre=set(range(1, 31)) - {30})
+    _collega(tmp_path, portale)
+    a = _api_al(tmp_path, portale, date(2026, 10, 3))
+    a.imposta_prova(False, confermato=True)
+    a.usa_zip(str(_zip(tmp_path, "Casa Lavanda", "99001", range(1, 31))))
+    (v,) = _aspetta(a, "piano")["voci"]
+    assert v["comunicabile"] and v["scadenza"] == "05/10"
+    # non richiesta: non parte
+    a.avvia(confermato=True)
+    _aspetta(a, "esito")
+    assert portale.caricamenti[-1]["comunica"] is None
+    # richiesta: va al portale insieme al caricamento, e il mese si segna chiuso
+    a.torna_alla_principale()
+    a.usa_zip(str(_zip(tmp_path, "Casa Lavanda", "99001", range(1, 31))))
+    _aspetta(a, "piano")
+    a.avvia(confermato=True, comunica=[v["chiave"]])
+    esito = _aspetta(a, "esito")
+    assert portale.caricamenti[-1]["comunica"] == date(2026, 9, 1)
+    assert esito["strutture"][0]["comunicazione"] == "inviata"
+    salvata = json.loads((tmp_path / "configurazione.json").read_text())
+    assert salvata["strutture"][0]["mesi"]["2026-09"]["chiuso"] is True
+
+
+def test_la_comunicazione_non_si_chiede_per_un_mese_che_non_lo_permette(tmp_path: Path) -> None:
+    portale = PortaleFinto(DUE[:1], caricati_settembre=set())
+    a = _collega(tmp_path, portale)                       # oggi 20/10: oltre il 5
+    a.usa_zip(str(_zip(tmp_path, "Casa Lavanda", "99001", range(1, 31))))
+    (v,) = _aspetta(a, "piano")["voci"]
+    assert not v["comunicabile"]
+    assert "errore" in a.avvia(comunica=[v["chiave"]])
+    assert portale.caricamenti == []

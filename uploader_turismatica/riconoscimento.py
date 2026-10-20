@@ -1,24 +1,26 @@
-"""Le strutture del gestore, lette dalla pagina del portale — e la copia
+"""Le strutture del gestore, lette dalle pagine del portale — e la copia
 ripulita della pagina quando la lettura non riesce.
 
-⚠️ **La pagina con l'elenco delle strutture non l'abbiamo mai vista.** Quello
-che il codice sa per certo del portale è una cosa sola: ogni struttura ha un
-numero, ``idStruttura``, che compare negli indirizzi
-(``…/movimentoospiti.xhtml?idStruttura=12345``) e nei parametri JSF. Per questo
-la lettura **parte da lì**, non da un selettore CSS indovinato:
+Come è fatto il portale (pagine vere, ottobre 2026 — copie ripulite in
+``tests/fixtures/turismatica/``):
 
-1. ogni attributo che contiene ``idStruttura`` seguito da un numero (``href``,
-   ``onclick``, ``data-*``, parametri ``{'idStruttura':'12345'}``) è una
-   struttura;
-2. il nome, il comune e la tipologia si cercano **intorno**: nella riga di
-   tabella che lo contiene, usando le intestazioni delle colonne se ci sono; se
-   non c'è una tabella, nel blocco (``li``, ``div`` a scheda) che lo racchiude;
-3. una ``<select>`` di strutture (``id``/``name`` con «strutt») dà numero e nome
-   dalle sue ``<option>``.
+1. **``prehome.xhtml``**, «Seleziona la struttura su cui vuoi operare»: un
+   ``selectOneMenu`` PrimeFaces. Il dato sta nel ``<select>`` nascosto con l'id
+   che finisce per ``_input``: ogni ``<option>`` ha ``value`` = numero
+   Turismatica (``idStruttura``) e testo = nome della struttura, **a volte con
+   spazi in coda**. Lo stesso elenco è ripetuto nella lista ``li[data-label]``
+   (la tendina visibile). È la fonte principale: :func:`strutture`.
+2. **``movimentoospiti.xhtml?idStruttura=…``**: l'intestazione porta nome,
+   tipologia, comune, CIR e CIN della struttura aperta
+   (:func:`intestazione`). Serve a verificare di essere sulla struttura giusta
+   e al riepilogo.
+
+Le forme di ripiego (``idStruttura`` negli attributi, tabelle con
+intestazioni, schede) restano per un portale che cambia: costano poco e non
+abbinano niente da sole.
 
 Se tutto questo non trova niente, l'app salva una copia della pagina **senza
-dati personali** (:func:`ripulisci`) e lascia inserire i numeri a mano. Con
-quella copia la lettura si sistema in un giro.
+dati personali** (:func:`ripulisci`) e lascia inserire i numeri a mano.
 
 Sola lettura: qui dentro si guarda HTML, non si clicca niente. I link da
 seguire (:func:`link_da_seguire`) sono solo ``href`` veri — mai ``javascript:``,
@@ -167,6 +169,10 @@ class StrutturaTrovata:
     comune: str = ""
     tipologia: str = ""
     stato: str = ""
+    #: Codice Identificativo Regionale e Nazionale, dall'intestazione dei
+    #: movimenti ('' finché non si è aperta la struttura).
+    cir: str = ""
+    cin: str = ""
 
     def completezza(self) -> int:
         return sum(bool(x) for x in (self.nome, self.comune, self.tipologia, self.stato))
@@ -274,9 +280,7 @@ def strutture(pagina: str) -> list[StrutturaTrovata]:
             trovate[s.id_turismatica] = s
 
     for n in radice.discendenti():
-        if n.tag == "select" and "strutt" in (
-            n.attrs.get("id", "") + n.attrs.get("name", "")
-        ).lower():
+        if n.tag == "select" and _select_di_strutture(n):
             for o in (d for d in n.discendenti() if d.tag == "option"):
                 valore = o.attrs.get("value", "").strip()
                 if valore.isdigit() and int(valore) > 0:
@@ -287,7 +291,98 @@ def strutture(pagina: str) -> list[StrutturaTrovata]:
                 id_t = m.group(1)
                 riga = n.antenato("tr")
                 tieni(_da_riga(id_t, riga, n) if riga is not None else _da_blocco(id_t, n))
+    testata = intestazione(pagina)
+    if testata is not None and testata.id_turismatica:
+        # La pagina dei movimenti di una struttura: è lei, con tutto ciò che
+        # l'intestazione dice (vince sulle forme di ripiego qui sopra).
+        trovate[testata.id_turismatica] = testata
     return sorted(trovate.values(), key=lambda s: (s.nome.lower(), s.id_turismatica))
+
+
+def _select_di_strutture(sel: Nodo) -> bool:
+    """Una ``<select>`` che elenca strutture: il suo id/nome lo dice, oppure è
+    il ``selectOneMenu`` PrimeFaces (id che finisce per ``_input``) di un
+    modulo il cui titolo parla di strutture — com'è ``prehome.xhtml``.
+    ⚠️ Il titolo serve: nella pagina dei movimenti c'è un altro
+    ``selectOneMenu`` con valori numerici, quello delle **provenienze**."""
+    ident = (sel.attrs.get("id", "") + " " + sel.attrs.get("name", "")).lower()
+    if "strutt" in ident:
+        return True
+    if not sel.attrs.get("id", "").endswith("_input"):
+        return False
+    modulo = sel.antenato("form") or sel.antenato("body")
+    if modulo is None:
+        return False
+    return any(
+        d.tag in ("h1", "h2", "h3") and "struttur" in d.testo().lower()
+        for d in modulo.discendenti()
+    )
+
+
+#: «CIR - Codice Identificativo Regionale: 054039B403012345» e simili.
+_ETICHETTA_CIR = re.compile(r"\bCIR\b|identificativo regionale", re.I)
+_ETICHETTA_CIN = re.compile(r"\bCIN\b|identificativo nazionale", re.I)
+_CODICE = re.compile(r"^[A-Z0-9]{8,20}$")
+
+
+def intestazione(pagina: str) -> StrutturaTrovata | None:
+    """La struttura aperta nella pagina dei movimenti, dalla sua intestazione:
+    nome, tipologia, comune, CIR, CIN e stato (``div.stato VALIDATA``).
+    Il numero Turismatica viene dall'indirizzo che la pagina porta in sé
+    (``dettagliostruttura.xhtml?idStruttura=…``, ``par_STRU=…``).
+    ``None`` se la pagina non ha l'intestazione."""
+    radice = albero(pagina)
+    blocco = next(
+        (n for n in radice.discendenti() if "nomestruttura" in n.attrs.get("class", "").split()),
+        None,
+    )
+    if blocco is None:
+        return None
+    etichette = [d.testo() for d in blocco.discendenti() if d.tag == "label" and d.testo()]
+    s = StrutturaTrovata("")
+    resto: list[str] = []
+    attesa = ""
+    for testo in etichette:
+        if attesa:
+            if _CODICE.match(testo.replace(" ", "").upper()):
+                setattr(s, attesa, testo.replace(" ", "").upper())
+            attesa = ""
+            continue
+        if _ETICHETTA_CIN.search(testo):
+            attesa = "cin"
+        elif _ETICHETTA_CIR.search(testo):
+            attesa = "cir"
+        elif re.match(r"comune\s*:", testo, re.I):
+            s.comune = testo.split(":", 1)[1].strip()
+        elif testo.startswith("(") and testo.endswith(")"):
+            s.tipologia = testo[1:-1].split(" - ")[0].strip()
+        else:
+            resto.append(testo)
+    # Il primo è il titolo della sezione («Movimento Ospiti»), poi il nome.
+    nomi = [t for t in resto if t.lower() != "movimento ospiti"]
+    s.nome = nomi[0] if nomi else ""
+    stato = next(
+        (n for n in radice.discendenti() if "stato" in n.attrs.get("class", "").split()),
+        None,
+    )
+    if stato is not None:
+        classi = stato.attrs.get("class", "").split()
+        s.stato = (stato.testo() or classi[-1]).strip().upper()
+    s.id_turismatica = _id_della_pagina(pagina)
+    return s
+
+
+_ID_DELLA_PAGINA = re.compile(
+    r"dettagliostruttura\.xhtml\?idStruttura=(\d{2,9})|par_STRU%3D(\d{2,9})"
+    r"|movimentoospiti\.xhtml\?idStruttura=(\d{2,9})",
+)
+
+
+def _id_della_pagina(pagina: str) -> str:
+    """Il numero della struttura aperta, se la pagina lo dice **in un solo
+    modo**: due numeri diversi vogliono dire che non lo sappiamo."""
+    trovati = {next(g for g in m.groups() if g) for m in _ID_DELLA_PAGINA.finditer(pagina)}
+    return trovati.pop() if len(trovati) == 1 else ""
 
 
 def link_da_seguire(pagina: str, indirizzo: str, massimo: int = 3) -> list[str]:

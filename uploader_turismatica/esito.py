@@ -55,6 +55,10 @@ class EsitoStruttura:
     #: Il nome del file usato per ogni giorno toccato: in prova è la risposta
     #: a «cosa avresti caricato?», e il nome è anche ciò che dichiara la data.
     file: dict[date, str] = field(default_factory=dict)
+    #: La comunicazione telematica mensile, se chiesta: la frase per il
+    #: gestore ('' = non chiesta) e se è andata.
+    comunicazione: str = ""
+    comunicazione_riuscita: bool = False
 
     def segna(self, giorno: date, esito: Esito, file: str | None = None) -> None:
         self.giorni[giorno] = esito
@@ -71,7 +75,7 @@ class EsitoStruttura:
     def tutto_a_posto(self) -> bool:
         return self.saltata is None and not (
             self.quanti(Esito.NON_RIUSCITO) or self.quanti(Esito.FILE_MANCANTE)
-        )
+        ) and (not self.comunicazione or self.comunicazione_riuscita)
 
 
 def _giorni(date_: list[date], massimo: int = 8) -> str:
@@ -117,9 +121,9 @@ def riepilogo(
         pronti = e.quanti(Esito.DA_CARICARE)
         parti = []
         if fatti:
-            parti.append(f"{fatti} giorni caricati")
+            parti.append(f"{fatti} {'giorno caricato' if fatti == 1 else 'giorni caricati'}")
         if pronti:
-            parti.append(f"{pronti} giorni da caricare")
+            parti.append(f"{pronti} {'giorno' if pronti == 1 else 'giorni'} da caricare")
         if gia:
             parti.append(f"{gia} già c'erano")
         righe.append(f"■ {e.etichetta} — " + (", ".join(parti) if parti else "niente da fare"))
@@ -141,6 +145,10 @@ def riepilogo(
                 f"{e.etichetta}: riprova per {_giorni(falliti)}. Se non passa "
                 "nemmeno al secondo giro, caricali a mano dal portale."
             )
+        if e.comunicazione:
+            righe.append(f"   · {e.comunicazione}")
+            if not e.comunicazione_riuscita:
+                da_fare.append(f"{e.etichetta}: {e.comunicazione}")
         if e.non_riconosciuti:
             righe.append(
                 f"   · {len(e.non_riconosciuti)} file nella cartella non sono "

@@ -277,7 +277,10 @@ const SCHERMATE = {
         <div class="riquadro-cifra"><div class="etichetta">da caricare</div>
           <div class="cifra ${v.da_caricare ? "male" : "ok"}">${esc(v.da_caricare)}</div></div>
         <div class="testo-voce"><strong style="color:var(--testo)">${esc(v.testo)}</strong>${v.letto_il ? ` <span class="piccolo-testo">(stato letto il ${esc(v.letto_il)})</span>` : ""}
-          ${v.futuri.length ? `<br><span class="piccolo-testo">I file dei giorni ${esc(elencoGiorni(v.futuri))} non li carico: oggi e i giorni futuri non sono ancora chiusi.</span>` : ""}</div>
+          ${v.futuri.length ? `<br><span class="piccolo-testo">I file dei giorni ${esc(elencoGiorni(v.futuri))} non li carico: oggi e i giorni futuri non sono ancora chiusi.</span>` : ""}
+          ${v.comunicabile ? `<label class="comunica"><input type="checkbox" class="spunta c-comunica" value="${esc(v.chiave)}" data-mese="${esc(v.mese)}" data-struttura="${esc(v.struttura)}">
+            <span>Alla fine invia anche la <strong>comunicazione mensile</strong> di ${esc(v.mese)} (entro il ${esc(v.scadenza)}).
+            <span class="piccolo-testo">Chiude il mese sul portale: dopo i dati non si modificano più. La invio solo se tutti i giorni risultano caricati.${stato.prova ? " In prova arrivo fino al bottone e non lo premo." : ""}</span></span></label>` : ""}</div>
       </div>`).join("");
     const bottone = d.niente_da_fare
       ? ""
@@ -289,7 +292,7 @@ const SCHERMATE = {
         <h1>Prima di cominciare</h1>
         <p class="intro">Ecco cosa farò. Durante il giro ricontrollo ogni giorno sul portale e salto quelli già presenti.</p>
         ${d.di_prova ? '<div class="avviso attenzione" style="margin-top:16px"><span class="segno">!</span><div>Sono i file inventati dello zip di prova: servono solo in modalità prova, e non li carico mai davvero.</div></div>' : ""}
-        ${d.niente_da_fare ? '<div class="avviso ok" style="margin-top:16px"><span class="segno">✓</span><div>Niente da caricare: i giorni di questi file risultano già tutti sul portale.</div></div>' : ""}
+        ${d.niente_da_fare ? '<div class="avviso ok" style="margin-top:16px"><span class="segno">✓</span><div>Niente da fare: i giorni di questi file risultano già tutti sul portale (o il mese è chiuso).</div></div>' : ""}
         <div class="strutture">${voci}</div>
         <div class="riga-bottoni">
           ${bottone}
@@ -308,7 +311,8 @@ const SCHERMATE = {
           ${s.saltata ? `<span style="color:var(--errore)">${esc(s.saltata)}</span>` : ""}
           ${s.non_riusciti.length ? `<span style="color:var(--errore)">Non riusciti: ${esc(s.non_riusciti.join(", "))}</span><br>` : ""}
           ${s.mancanti.length ? `Manca il file di: ${esc(s.mancanti.join(", "))}` : ""}
-          ${!s.saltata && !s.non_riusciti.length && !s.mancanti.length ? "Tutto a posto." : ""}</div>
+          ${s.comunicazione ? `<br><span style="color:var(${s.comunicazione_riuscita ? "--ok" : "--errore"})">Comunicazione mensile: ${esc(s.comunicazione)}</span>` : ""}
+          ${!s.saltata && !s.non_riusciti.length && !s.mancanti.length && !s.comunicazione ? "Tutto a posto." : ""}</div>
       </div>`).join("");
     return `
       <section>
@@ -341,7 +345,7 @@ const SCHERMATE = {
 };
 
 function schedaStruttura(s, { spunta, scelta }) {
-  const meta = [s.comune, s.tipologia, `n° ${s.id}`].filter(Boolean).map(esc).join(" · ");
+  const meta = [s.comune, s.tipologia, `n° ${s.id}`, s.cin ? `CIN ${s.cin}` : ""].filter(Boolean).map(esc).join(" · ");
   const input = spunta
     ? `<input class="spunta" type="${spunta}" name="struttura" value="${esc(s.id)}" ${scelta ? "checked" : ""}>`
     : "";
@@ -358,7 +362,13 @@ function schedaStruttura(s, { spunta, scelta }) {
 
 function schedaMese(m) {
   let cifra;
+  const comunicazione = {
+    comunicato: '<div class="piccolo-testo comunicato">✓ comunicazione mensile fatta (mese chiuso)</div>',
+    da_comunicare: `<div class="piccolo-testo da-comunicare">Comunicazione mensile da fare, entro il ${esc(m.scadenza)}</div>`,
+    scaduta: `<div class="piccolo-testo da-comunicare">Comunicazione mensile non risulta fatta (scadeva il ${esc(m.scadenza)})</div>`,
+  }[m.comunicazione] || "";
   if (!m.letto) cifra = '<div class="cifra ignota">Non letto</div>';
+  else if (m.comunicazione === "comunicato" && !m.caricati) cifra = '<div class="cifra ok">✓<small>chiuso</small></div>';
   else if (m.mancanti.length) cifra = `<div class="cifra male">${m.mancanti.length}<small>${m.mancanti.length === 1 ? "giorno manca" : "giorni mancano"}</small></div>`;
   else cifra = '<div class="cifra ok">✓<small>tutto caricato</small></div>';
   const celle = m.giorni.map((g) => `<span class="giorno ${esc(g.s)}" title="${esc(g.g)}"></span>`).join("");
@@ -368,8 +378,13 @@ function schedaMese(m) {
         <span class="piccolo-testo">${m.letto ? `${esc(m.caricati)} caricati` : ""}</span></div>
       ${cifra}
       ${m.mancanti.length && m.mancanti.length <= 6 ? `<div class="piccolo-testo">Mancano: ${esc(elencoGiorni(m.mancanti))}</div>` : ""}
+      ${comunicazione}
       <div class="calendario">${celle}</div>
     </div>`;
+}
+
+function comunicazioniScelte() {
+  return [...document.querySelectorAll(".c-comunica:checked")];
 }
 
 function legenda() {
@@ -426,13 +441,21 @@ const AZIONI = {
   },
   "indietro": () => api.torna_alla_principale(),
   "torna": () => api.torna_alla_principale(),
-  "avvia": () => chiama("avvia", false),
-  "avvia-vera": () => mostraModale(
-    "Carico davvero?",
-    `${esc(stato.dati.conferma_vera)}<br><br>Se un giorno è già sul portale lo salto.`,
-    [{ testo: "Sì, carica davvero", pericolo: true, fai: () => chiama("avvia", true) },
-     { testo: "Annulla" }],
-  ),
+  "avvia": () => chiama("avvia", false, comunicazioniScelte().map((c) => c.value)),
+  "avvia-vera": () => {
+    const comunica = comunicazioniScelte();
+    const frase = comunica.length
+      ? "<br><br><strong>E alla fine INVIO la comunicazione mensile</strong> di " +
+        comunica.map((c) => `${esc(c.dataset.struttura)} (${esc(c.dataset.mese)})`).join(", ") +
+        ": dopo, quei mesi non si modificano più."
+      : "";
+    mostraModale(
+      "Carico davvero?",
+      `${esc(stato.dati.conferma_vera)}${frase}<br><br>Se un giorno è già sul portale lo salto.`,
+      [{ testo: "Sì, carica davvero", pericolo: true, fai: () => chiama("avvia", true, comunica.map((c) => c.value)) },
+       { testo: "Annulla" }],
+    );
+  },
   "passa-vera": () => mostraModale(
     "Passo alla modalità vera?",
     "In modalità vera premo «Carica» davvero, giorno per giorno.<br><br>" +

@@ -10,7 +10,6 @@ from uploader_turismatica.piano import (
     elenco_giorni,
     stato_dalle_righe,
 )
-from uploader_turismatica.portale import righe_lette
 
 OGGI = date(2026, 10, 20)
 LETTO = datetime(2026, 10, 19, 18, 2)
@@ -81,22 +80,59 @@ def test_mancanti_non_contano_oggi() -> None:
     assert m.mancanti(OGGI) == list(range(1, 20))
 
 
-def test_stato_dalle_righe_del_portale() -> None:
-    """Le righe come le legge il JavaScript: già dentro, da fare (c'è il
-    pulsante), non ancora aperto (né dentro né pulsante)."""
-    grezze = [
-        {"celle": ["", "01/09/2026", "0", "1", "0", "1", "1"], "classi": [], "titoli": ["File caricato: a.txt"], "pulsante": True},
-        {"celle": ["", "02/09/2026", "", "", "", "", ""], "classi": ["fa fa-angle-double-down"], "titoli": [], "pulsante": True},
-        {"celle": ["", "03/09/2026", "", "", "", "", ""], "classi": [], "titoli": [], "pulsante": False},
-        {"celle": ["", "riga senza data"], "classi": [], "titoli": []},
-    ]
-    righe = righe_lette(grezze)
-    assert righe == [(date(2026, 9, 1), True, True), (date(2026, 9, 2), False, True),
-                     (date(2026, 9, 3), False, False)]
-    s = stato_dalle_righe(righe, anno=2026, mese=9, letto_il=LETTO)
-    assert s.giorni == {1: StatoGiorno.CARICATO, 2: StatoGiorno.DA_FARE, 3: StatoGiorno.NON_APERTO}
+def test_stato_dalle_righe_della_pagina_vera() -> None:
+    """La pagina dei movimenti vera (ottobre 2026, nessun giorno inserito): il
+    1° ha il bottone di caricamento, gli altri aspettano il precedente."""
+    from pathlib import Path
+
+    from uploader_turismatica.pagina_movimenti import leggi_pagina
+
+    p = leggi_pagina((Path(__file__).parent / "fixtures/turismatica/movimenti.html")
+                     .read_text(encoding="utf-8"))
+    righe = [(r.giorno, r.caricato, bool(r.id_carica)) for r in p.righe]
+    s = stato_dalle_righe(righe, anno=2026, mese=10, letto_il=LETTO)
+    assert s.giorni[1] is StatoGiorno.DA_FARE
+    assert all(s.giorni[g] is StatoGiorno.NON_APERTO for g in range(2, 21))
+    assert s.mancanti(OGGI) == list(range(1, 20))
+
+
+def test_un_mese_chiuso_non_ha_niente_da_caricare() -> None:
+    m = StatoMese(2026, 9, {g: StatoGiorno.CARICATO for g in range(1, 31)}, LETTO, chiuso=True)
+    (v,) = costruisci([("12345", "Casa Lavanda", [date(2026, 9, 3)])], {"12345": {"2026-09": m}}, OGGI)
+    assert v.chiuso and v.da_caricare == [] and v.periodo is None and not v.comunicabile
+    assert "già chiuso sul portale" in v.testo
+    assert m.comunicazione(OGGI) == "comunicato"
+
+
+def test_quando_si_puo_chiedere_la_comunicazione_mensile() -> None:
+    """Mese concluso, ancora aperto, entro il 5 del mese dopo, e ogni giorno o
+    già sul portale o fra quelli da caricare."""
+    tutti = [date(2026, 9, g) for g in range(1, 31)]
+    (v,) = costruisci([("12345", "Casa Lavanda", tutti)], {"12345": {"2026-09": _settembre({12})}},
+                      date(2026, 10, 3))
+    assert v.comunicabile
+    # oltre il 5 ottobre: no
+    (v,) = costruisci([("12345", "Casa Lavanda", tutti)], {"12345": {"2026-09": _settembre({12})}},
+                      date(2026, 10, 6))
+    assert not v.comunicabile
+    # manca un giorno sul portale e nello zip non c'è: no
+    (v,) = costruisci([("12345", "Casa Lavanda", tutti[:-1])],
+                      {"12345": {"2026-09": _settembre({30})}}, date(2026, 10, 3))
+    assert not v.comunicabile
+    # il mese in corso: no
+    (v,) = costruisci([("12345", "Casa Lavanda", [date(2026, 10, 1)])], {}, date(2026, 10, 3))
+    assert not v.comunicabile
+
+
+def test_lo_stato_della_comunicazione() -> None:
+    assert StatoMese(2026, 10).comunicazione(OGGI) == "in_corso"
+    assert StatoMese(2026, 9).comunicazione(date(2026, 10, 5)) == "da_comunicare"
+    assert StatoMese(2026, 9).comunicazione(date(2026, 10, 6)) == "scaduta"
+    assert StatoMese(2026, 12).comunicazione(date(2027, 1, 2)) == "da_comunicare"
 
 
 def test_lo_stato_si_salva_e_si_rilegge() -> None:
     s = _settembre({12})
     assert StatoMese.dal_json(s.chiave, s.da_json()) == s
+    c = StatoMese(2026, 8, {}, LETTO, chiuso=True, invio_possibile=False)
+    assert StatoMese.dal_json(c.chiave, c.da_json()) == c

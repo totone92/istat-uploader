@@ -32,7 +32,8 @@ def test_dentro_ci_sono_solo_strutture_giorni_e_abbinamenti(tmp_path: Path) -> N
     dati = json.loads(p.read_text(encoding="utf-8"))
     assert set(dati) == {"versione", "quante", "aggiornata_il", "strutture", "alias"}
     assert set(dati["strutture"][0]) == {
-        "id_turismatica", "nome", "comune", "tipologia", "stato_portale", "manuale", "mesi", "avviso",
+        "id_turismatica", "nome", "comune", "tipologia", "stato_portale", "cir", "cin", "manuale",
+        "mesi", "avviso",
     }
     testo = p.read_text(encoding="utf-8").lower()
     for parola in ("password", "spid", "token", "codice_fiscale", "cookie"):
