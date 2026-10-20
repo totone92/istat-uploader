@@ -58,10 +58,10 @@ aggiungile tutte: le fa una dietro l'altra con un accesso solo.
 
 ## Ogni volta (cinque minuti)
 
-### 1. Scarica i file da HostLab
+### 1. Scarica i file ISTAT del mese
 
-Su HostLab vai in **Report → ISTAT**, scegli il mese e scarica. Ti viene giù un
-file `.zip`. **Non aprirlo**: lasciandolo com'è fai prima.
+Dal tuo gestionale o channel manager scarica i file ISTAT giornalieri del mese
+(con HostLab: **Report → ISTAT**). Ti viene giù un file `.zip`. **Non aprirlo**: lasciandolo com'è fai prima.
 
 ### 2. Apri il programma e digli tre cose
 
@@ -123,7 +123,7 @@ Sì, tranquillamente. I giorni già caricati li salta e te lo dice
 («N già c'erano»). Non fa danni e non carica niente due volte.
 
 **Mi dice che manca il file di qualche giorno.**
-Quel giorno non c'era nel `.zip`. Torna su HostLab, riscarica quel mese e
+Quel giorno non c'era nel `.zip`. Riscarica quel mese dal gestionale e
 rilancia: i giorni che ci sono già li salta e carica solo i mancanti.
 
 **Si è fermato a metà.**

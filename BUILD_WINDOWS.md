@@ -11,7 +11,8 @@ CIE. Python **non** serve (solo per la strada B, più sotto).
 ## A. Scaricare l'.exe già pronto (la strada normale)
 
 L'.exe lo costruisce GitHub da solo, su una macchina Windows, a ogni modifica.
-Devi essere entrato su github.com con il tuo account (il repo è privato).
+Per la Release non serve un account GitHub; per gli artefatti delle build sì
+(GitHub li fa scaricare solo a chi è entrato).
 
 **Dalla Release** (link fisso, la versione «ufficiale»):
 
@@ -23,11 +24,10 @@ Devi essere entrato su github.com con il tuo account (il repo è privato).
 
 1. apri <https://github.com/totone92/istat-uploader/actions/workflows/build-windows.yml>;
 2. clicca sulla prima riga con il pallino **verde** ✓;
-3. in fondo alla pagina, sotto **Artifacts**, clicca
-   **`IstatUploader-main-…`**: si scarica uno **.zip** (GitHub impacchetta
-   sempre così);
-4. apri lo zip con un doppio clic e trascina `IstatUploader.exe` sul Desktop
-   (o in una cartella tua, per esempio `Documenti\IstatUploader`).
+3. in fondo alla pagina, sotto **Artifacts**, clicca **`IstatUploader.exe`**:
+   si scarica direttamente l'eseguibile, niente zip da aprire;
+4. spostalo sul Desktop o in una cartella tua (per esempio
+   `Documenti\IstatUploader`).
 
 > ⚠️ Gli artefatti delle build restano su GitHub **90 giorni**, poi spariscono.
 > Le Release no.

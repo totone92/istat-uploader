@@ -3,6 +3,7 @@ name = "uploader-turismatica"
 version = "1.1.0"
 description = "Carica i movimenti ISTAT giornalieri su Turismatica (Regione Umbria)"
 requires-python = ">=3.11"
+license = { text = "MIT" }
 dependencies = [
     # Selenium >= 4.6 porta dentro **Selenium Manager**: trova Chrome, scarica
     # il ChromeDriver giusto e lo tiene in cache. È la ragione per cui qui NON

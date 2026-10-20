@@ -42,7 +42,7 @@ def test_non_riuscito_e_file_mancante_NON_si_fondono() -> None:
     testo = riepilogo([e], "settembre 2026", prova=False)
     assert "manca il file di: 01/09" in testo
     assert "NON caricati: 02/09" in testo
-    assert "riscarica da HostLab" in testo
+    assert "riscarica dal tuo gestionale" in testo
     assert "riprova per" in testo
     assert not e.tutto_a_posto
 

@@ -1,7 +1,8 @@
 # Costruisce dist\IstatUploader.exe su una macchina Windows di GitHub.
 #
 # - a ogni push su main, e a mano da Actions → «Build Windows» → Run workflow:
-#   l'.exe esce come ARTEFATTO scaricabile dalla pagina del giro;
+#   l'.exe esce come ARTEFATTO scaricabile dalla pagina del giro (il file
+#   stesso, non uno zip);
 # - a ogni tag vX.Y.Z: in più lo allega a una RELEASE (link stabile, non scade).
 #
 # Nessun segreto: usa solo il token che GitHub dà a ogni giro (github.token),
@@ -43,14 +44,11 @@ jobs:
       - name: Test
         run: python -m pytest -q
 
+      # In Python e non in PowerShell: legge __version__ dal testo del file e
+      # stampa i due valori esatti se non combaciano (scripts/controlla_tag.py).
       - name: La versione del tag è quella dell'app
         if: startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
-        run: |
-          $app = python -c "import uploader_turismatica as u; print(u.__version__)"
-          if ("v$app" -ne "${{ github.ref_name }}") {
-            throw "tag ${{ github.ref_name }} ma l'app dice v$app: allinea __version__"
-          }
+        run: python scripts/controlla_tag.py "${{ github.ref_name }}"
 
       - name: Costruisco IstatUploader.exe
         run: python -m PyInstaller IstatUploader.spec --noconfirm --clean
@@ -82,10 +80,12 @@ jobs:
           Get-Content "$env:APPDATA\UploaderTurismatica\controllo.txt"
           if ($p.ExitCode -ne 0) { throw "controllo: qualcosa con la ✗" }
 
+      # archive: false ⇒ l'artefatto È l'.exe (niente zip da aprire), e si
+      # chiama come il file: IstatUploader.exe.
       - uses: actions/upload-artifact@v7
         with:
-          name: IstatUploader-${{ github.ref_name }}-${{ github.run_number }}
           path: dist/IstatUploader.exe
+          archive: false
           if-no-files-found: error
           retention-days: 90
 
@@ -98,12 +98,16 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: IstatUploader-${{ github.ref_name }}-${{ github.run_number }}
+          name: IstatUploader.exe
+          path: dist
       - name: Release con l'.exe
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" IstatUploader.exe \
+          ls -la dist
+          exe=$(find dist -type f -name IstatUploader.exe | head -n 1)
+          test -n "$exe" || { echo "IstatUploader.exe non scaricato"; exit 1; }
+          gh release create "${{ github.ref_name }}" "$exe" \
             --repo "${{ github.repository }}" \
             --title "Istat Uploader ${{ github.ref_name }}" \
             --notes "Scarica IstatUploader.exe qui sotto. Prima volta: leggi BUILD_WINDOWS.md (si parte in MODALITÀ PROVA)."

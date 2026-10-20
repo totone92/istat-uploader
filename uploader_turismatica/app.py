@@ -359,8 +359,8 @@ class App:
         if s is None:
             return
         scelto = filedialog.askopenfilename(
-            title=f"Lo .zip scaricato da HostLab per «{s.etichetta}»",
-            filetypes=[("File scaricato da HostLab", "*.zip"), ("Tutti i file", "*.*")],
+            title=f"Lo .zip con i file ISTAT di «{s.etichetta}»",
+            filetypes=[("Zip dei file ISTAT", "*.zip"), ("Tutti i file", "*.*")],
         )
         if not scelto:
             # Niente zip: forse i file sono già estratti in una cartella.

@@ -9,8 +9,8 @@ ognuna ha un rimedio diverso:
 * **già caricato** — c'era di già. Non è un errore e non va contato come tale:
   rilanciare sullo stesso mese dev'essere innocuo, altrimenti l'utente non lo
   rifà mai quando invece serve;
-* **file mancante** — il .txt di quel giorno non c'era. Il rimedio è in
-  HostLab (riscaricare), non qui;
+* **file mancante** — il .txt di quel giorno non c'era. Il rimedio è nel
+  gestionale (riscaricare), non qui;
 * **non riuscito** — il portale non l'ha accettato. Il rimedio è riprovare, e
   se insiste guardare quel giorno a mano.
 
@@ -131,7 +131,7 @@ def riepilogo(
         if mancanti:
             righe.append(f"   · manca il file di: {_giorni(mancanti)}")
             da_fare.append(
-                f"{e.etichetta}: riscarica da HostLab i giorni mancanti "
+                f"{e.etichetta}: riscarica dal tuo gestionale i giorni mancanti "
                 f"({_giorni(mancanti)}) e rilancia."
             )
         falliti = e.elenco(Esito.NON_RIUSCITO)
