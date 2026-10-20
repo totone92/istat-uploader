@@ -104,11 +104,20 @@ def _api(tmp_path: Path, portale: PortaleFinto) -> Api:
                percorso_registro=None, oggi=lambda: OGGI, ora=lambda: ORA)
 
 
+#: Le schermate con cui un giro finisce.
+_FINE_GIRO = frozenset({"riepilogo", "esito", "errore", "principale", "benvenuto"})
+
+
 def _aspetta(a: Api, schermata: str, secondi: float = 5.0) -> dict[str, Any]:
     fine = time.monotonic() + secondi
     while time.monotonic() < fine:
         s = a.stato()
         if s["schermata"] == schermata:
+            if schermata in _FINE_GIRO:
+                # La schermata si mostra prima che il thread del giro abbia
+                # finito (chiudi, pulizia dello zip): aspettarlo, o su un
+                # computer lento il passo dopo trova il giro ancora vivo.
+                a.aspetta_fine()
             return s["dati"]
         time.sleep(0.01)
     raise AssertionError(f"attesa «{schermata}», c'è «{a.stato()['schermata']}»")
@@ -147,7 +156,7 @@ def test_primo_avvio_riconosce_legge_i_giorni_e_salva_solo_dopo_l_ok(tmp_path: P
     a.conferma_strutture(["23456"])                  # tolta CASA LAVANDA
     principale = _aspetta(a, "principale")
     assert [s["nome"] for s in principale["strutture"]] == ["Agriturismo Le Ginestre"]
-    salvata = json.loads((tmp_path / "configurazione.json").read_text())
+    salvata = json.loads((tmp_path / "configurazione.json").read_text(encoding="utf-8"))
     assert [s["id_turismatica"] for s in salvata["strutture"]] == ["23456"]
 
 
@@ -236,7 +245,7 @@ def test_modalita_vera_solo_con_conferma_e_aggiorna_lo_stato(tmp_path: Path) -> 
     a.avvia(confermato=True)
     esito = _aspetta(a, "esito")
     assert not esito["prova"] and esito["strutture"][0]["caricati"] == 2
-    salvata = json.loads((tmp_path / "configurazione.json").read_text())
+    salvata = json.loads((tmp_path / "configurazione.json").read_text(encoding="utf-8"))
     giorni = salvata["strutture"][0]["mesi"]["2026-09"]["giorni"]
     assert giorni["12"] == giorni["19"] == "caricato"
 
@@ -279,7 +288,7 @@ def test_lo_zip_di_prova_si_abbina_a_mano_solo_in_prova_e_non_si_ricorda(
     assert g["di_prova"] and "solo per vedere il giro in modalità prova" in g["domanda"]
     a.conferma_abbinamenti({g["chiave"]: "12345"}, ricorda=True)
     _aspetta(a, "piano")
-    salvata = json.loads((tmp_path / "configurazione.json").read_text())
+    salvata = json.loads((tmp_path / "configurazione.json").read_text(encoding="utf-8"))
     assert salvata["alias"] == {}                        # mai ricordato
     a.avvia()
     _aspetta(a, "esito")
@@ -328,7 +337,7 @@ def test_l_intestazione_completa_la_struttura_ma_il_nome_resta_quello_dell_elenc
 ) -> None:
     _collega(tmp_path, PortaleFinto([StrutturaTrovata("12345", "CASA LAVANDA")],
                                     caricati_settembre=set(), cin=CIN))
-    (s,) = json.loads((tmp_path / "configurazione.json").read_text())["strutture"]
+    (s,) = json.loads((tmp_path / "configurazione.json").read_text(encoding="utf-8"))["strutture"]
     assert (s["nome"], s["comune"], s["tipologia"], s["cin"]) == (
         "CASA LAVANDA", "PERUGIA", "Affittacamere", "IT054039B403012345")
 
@@ -374,7 +383,7 @@ def test_la_comunicazione_mensile_si_chiede_e_va_in_fondo_al_giro(tmp_path: Path
     esito = _aspetta(a, "esito")
     assert portale.caricamenti[-1]["comunica"] == date(2026, 9, 1)
     assert esito["strutture"][0]["comunicazione"] == "inviata"
-    salvata = json.loads((tmp_path / "configurazione.json").read_text())
+    salvata = json.loads((tmp_path / "configurazione.json").read_text(encoding="utf-8"))
     assert salvata["strutture"][0]["mesi"]["2026-09"]["chiuso"] is True
 
 
@@ -386,3 +395,25 @@ def test_la_comunicazione_non_si_chiede_per_un_mese_che_non_lo_permette(tmp_path
     assert not v["comunicabile"]
     assert "errore" in a.avvia(comunica=[v["chiave"]])
     assert portale.caricamenti == []
+
+
+def test_torna_premuto_subito_dopo_l_esito_non_va_perso(tmp_path: Path) -> None:
+    """L'esito si mostra prima che il giro abbia chiuso Chrome e pulito lo
+    zip. Su un computer lento «Torna» arrivava in quell'istante ed era
+    ignorato (il giro risultava ancora vivo): l'utente restava sull'esito."""
+    class Lento(PortaleFinto):
+        def chiudi(self) -> None:
+            time.sleep(0.3)
+            super().chiudi()
+
+    portale = Lento(DUE, caricati_settembre=set(range(1, 31)) - {12})
+    a = _collega(tmp_path, portale)
+    a.usa_zip(str(_zip(tmp_path, "Casa Lavanda", "99001", range(1, 31))))
+    _aspetta(a, "piano")
+    a.avvia()
+    fine = time.monotonic() + 5
+    while a.stato()["schermata"] != "esito" and time.monotonic() < fine:
+        time.sleep(0.01)
+    assert a.stato()["occupato"]          # il giro sta ancora chiudendo
+    a.torna_alla_principale()
+    assert a.stato()["schermata"] == "principale"

@@ -54,7 +54,7 @@ def test_il_file_estratto_due_volte_finisce_fra_i_non_riconosciuti(
     con lo stesso giorno è lì accanto. Se invece è rimasto solo lui, il giorno
     risulta «file mancante» e il riepilogo dice di riscaricarlo — un esito
     recuperabile, non un file caricato sulla riga sbagliata."""
-    (tmp_path / "schedine_istat_99001_20260901 (1).txt").write_text("x")
+    (tmp_path / "schedine_istat_99001_20260901 (1).txt").write_text("x", encoding="utf-8")
     s = apri(tmp_path)
     assert s.per_giorno == {}
     assert s.non_riconosciuti == ["schedine_istat_99001_20260901 (1).txt"]
@@ -62,7 +62,7 @@ def test_il_file_estratto_due_volte_finisce_fra_i_non_riconosciuti(
 
 def test_cartella_con_file_veri(tmp_path: Path) -> None:
     for g in (1, 2, 3):
-        (tmp_path / f"schedine_istat_99001_202609{g:02d}.txt").write_text("dati")
+        (tmp_path / f"schedine_istat_99001_202609{g:02d}.txt").write_text("dati", encoding="utf-8")
     s = apri(tmp_path)
     assert sorted(s.per_giorno) == [date(2026, 9, g) for g in (1, 2, 3)]
     assert s.primo == date(2026, 9, 1)
@@ -79,7 +79,7 @@ def test_zip_di_hostlab(tmp_path: Path) -> None:
     s = apri(z)
     try:
         assert sorted(s.per_giorno) == [date(2026, 9, 1), date(2026, 9, 2)]
-        assert s.file_del(date(2026, 9, 1)).read_text() == "dati"
+        assert s.file_del(date(2026, 9, 1)).read_text(encoding="utf-8") == "dati"
     finally:
         s.pulisci()
 
@@ -131,7 +131,7 @@ def test_solo_i_txt_escono_dallo_zip(tmp_path: Path) -> None:
 
 def test_mancanti_e_presenti_sul_periodo(tmp_path: Path) -> None:
     for g in (1, 2, 5):
-        (tmp_path / f"schedine_istat_1_202609{g:02d}.txt").write_text("x")
+        (tmp_path / f"schedine_istat_1_202609{g:02d}.txt").write_text("x", encoding="utf-8")
     s = apri(tmp_path)
     p = Periodo(dal=date(2026, 9, 1), al=date(2026, 9, 5))
     assert s.presenti(p) == [date(2026, 9, g) for g in (1, 2, 5)]
@@ -145,7 +145,7 @@ def test_percorso_che_non_esiste_lo_dice_con_parole(tmp_path: Path) -> None:
 
 def test_uno_zip_rotto_lo_dice_con_parole(tmp_path: Path) -> None:
     rotto = tmp_path / "rotto.zip"
-    rotto.write_text("non sono uno zip")
+    rotto.write_text("non sono uno zip", encoding="utf-8")
     with pytest.raises(SorgenteNonValida, match="danneggiato"):
         apri(rotto)
 
@@ -165,7 +165,7 @@ def test_pulisci_e_idempotente(tmp_path: Path) -> None:
 def test_un_mese_intero_si_indicizza(tmp_path: Path) -> None:
     settembre = mese(2026, 9)
     for g in settembre.giorni:
-        (tmp_path / f"schedine_istat_99001_{g:%Y%m%d}.txt").write_text("x")
+        (tmp_path / f"schedine_istat_99001_{g:%Y%m%d}.txt").write_text("x", encoding="utf-8")
     s = apri(tmp_path)
     assert len(s.per_giorno) == 30
     assert s.mancanti(settembre) == []
@@ -200,7 +200,7 @@ def test_ogni_formato_vero_da_uno_zip_indicizza_il_mese_intero(
         assert s.mancanti(ottobre) == []
         assert s.non_riconosciuti == []
         for g in ottobre.giorni:
-            assert s.file_del(g).read_text() == f"movimento del {g}"
+            assert s.file_del(g).read_text(encoding="utf-8") == f"movimento del {g}"
     finally:
         s.pulisci()
 
@@ -210,8 +210,8 @@ def test_i_due_formati_di_hostlab_nella_stessa_cartella_non_si_confondono(
 ) -> None:
     """Un mese caricato metà da beb e metà generato (il passaggio di un tenant
     da beb a «Non uso beb.it»): ogni file vale per il suo giorno."""
-    (tmp_path / "schedine_istat_99001_20261030.txt").write_text("beb")
-    (tmp_path / "schedine_istat_IT000000X000000000_20261031.txt").write_text("gen")
+    (tmp_path / "schedine_istat_99001_20261030.txt").write_text("beb", encoding="utf-8")
+    (tmp_path / "schedine_istat_IT000000X000000000_20261031.txt").write_text("gen", encoding="utf-8")
     s = apri(tmp_path)
-    assert s.file_del(date(2026, 10, 30)).read_text() == "beb"
-    assert s.file_del(date(2026, 10, 31)).read_text() == "gen"
+    assert s.file_del(date(2026, 10, 30)).read_text(encoding="utf-8") == "beb"
+    assert s.file_del(date(2026, 10, 31)).read_text(encoding="utf-8") == "gen"

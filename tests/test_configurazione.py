@@ -45,5 +45,5 @@ def test_primo_avvio_file_rotto_o_versione_vecchia_vuol_dire_ricollegare(tmp_pat
     (tmp_path / "rotto.json").write_text("{", encoding="utf-8")
     assert configurazione.carica(tmp_path / "rotto.json") is None
     # la versione 1 era un elenco di strutture scritte a mano: non si migra
-    (tmp_path / "v1.json").write_text('[{"id_turismatica": "123", "etichetta": "UCI"}]')
+    (tmp_path / "v1.json").write_text('[{"id_turismatica": "123", "etichetta": "UCI"}]', encoding="utf-8")
     assert configurazione.carica(tmp_path / "v1.json") is None

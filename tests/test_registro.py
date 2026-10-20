@@ -68,7 +68,7 @@ def test_se_accanto_all_exe_non_si_scrive_si_ripiega(
     """Un .exe in ``Program Files`` o su una chiavetta protetta: il registro va
     nella cartella delle impostazioni, e la finestra dice dove."""
     bloccata = tmp_path / "file-non-cartella"
-    bloccata.write_text("x")
+    bloccata.write_text("x", encoding="utf-8")
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
     percorso = registro.configura(bloccata / "sotto")
     assert percorso == tmp_path / "appdata" / "UploaderTurismatica" / registro.NOME_FILE

@@ -18,7 +18,7 @@ def test_file_assente_non_e_un_errore(tmp_path: Path) -> None:
 
 def test_file_corrotto_non_e_un_errore(tmp_path: Path) -> None:
     p = tmp_path / "strutture.json"
-    p.write_text("{questo non è json")
+    p.write_text("{questo non è json", encoding="utf-8")
     assert carica(p) == []
 
 

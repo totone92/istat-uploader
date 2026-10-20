@@ -321,8 +321,16 @@ class Api:
         })
 
     def torna_alla_principale(self) -> None:
-        if self._lavoro is not None and self._lavoro.is_alive():
-            return
+        lavoro = self._lavoro
+        if lavoro is not None and lavoro.is_alive():
+            # L'esito (o l'errore) si mostra prima che il giro abbia finito di
+            # chiudere Chrome e pulire lo zip: un «Torna» premuto in
+            # quell'istante non deve andare perso. A metà giro sì, si ignora.
+            if self._schermata not in ("esito", "errore"):
+                return
+            lavoro.join(10)
+            if lavoro.is_alive():
+                return
         self._pulisci_archivio()
         self._vai_principale()
 

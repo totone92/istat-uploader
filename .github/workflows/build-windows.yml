@@ -43,8 +43,12 @@ jobs:
       - name: Lint
         run: python -m ruff check .
 
+      # -X warn_default_encoding: ogni lettura/scrittura senza encoding esplicito
+      # si vede (su Windows la codifica di default è cp1252, non UTF-8).
+      # I test falliti diventano annotazioni del giro
+      # (pytest-github-actions-annotate-failures), leggibili dall'API.
       - name: Test
-        run: python -m pytest -q
+        run: python -X warn_default_encoding -m pytest -q -rf --tb=short
 
       # In Python e non in PowerShell: legge __version__ dal testo del file e
       # stampa i due valori esatti se non combaciano (scripts/controlla_tag.py).

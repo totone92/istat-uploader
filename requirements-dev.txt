@@ -50,6 +50,10 @@ pyinstaller-hooks-contrib==2026.8
 pysocks==1.7.1
     # via urllib3
 pytest==9.1.1
+    # via
+    #   -r requirements-dev.in
+    #   pytest-github-actions-annotate-failures
+pytest-github-actions-annotate-failures==0.4.2
     # via -r requirements-dev.in
 pythonnet==3.2.1
     # via pywebview

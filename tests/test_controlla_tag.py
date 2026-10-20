@@ -23,9 +23,9 @@ def test_tag_giusto_passa_tag_sbagliato_dice_i_due_valori_esatti() -> None:
 def test_da_riga_di_comando_esce_con_zero_sul_tag_dell_app() -> None:
     script = Path(INIT).parent.parent / "scripts" / "controlla_tag.py"
     tag = f"v{uploader_turismatica.__version__}"
-    giusto = subprocess.run([sys.executable, str(script), tag], capture_output=True, text=True)
+    giusto = subprocess.run([sys.executable, str(script), tag], capture_output=True, text=True, encoding="utf-8")
     assert giusto.returncode == 0, giusto.stderr
     sbagliato = subprocess.run([sys.executable, str(script), "v0.0.0"],
-                               capture_output=True, text=True)
+                               capture_output=True, text=True, encoding="utf-8")
     assert sbagliato.returncode == 1
     assert "'v0.0.0'" in sbagliato.stderr

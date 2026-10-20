@@ -2,3 +2,5 @@
 *.bat text eol=crlf
 # il giorno reso da HostLab: byte per byte, a capo CRLF compresi
 tests/fixtures/*.txt -text
+# le pagine vere del portale: byte per byte, come sono state salvate
+tests/fixtures/turismatica/*.html -text

@@ -128,7 +128,7 @@ def test_i_file_veri_non_sono_bloccati(tmp_path: Path) -> None:
     (tmp_path / "schedine_istat_99001_20260901.txt").write_bytes(
         b"Agriturismo Le Ginestre".ljust(255) + b"\r\n"
     )
-    (tmp_path / "02092026.txt").write_text("x")
+    (tmp_path / "02092026.txt").write_text("x", encoding="utf-8")
     s = apri(tmp_path)
     assert not s.di_prova
     assert blocco_modalita_vera(s, prova=False) is None
