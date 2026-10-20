@@ -29,6 +29,7 @@ import time
 from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
+from typing import Protocol
 
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
@@ -65,6 +66,10 @@ _BOTTONE_CARICA = (
     By.CSS_SELECTOR,
     "#movimentiTabView\\:formUploadFile .ui-fileupload-upload:not([disabled])",
 )
+_ANNULLA_FILE = (
+    By.CSS_SELECTOR,
+    "#movimentiTabView\\:formUploadFile .ui-fileupload-cancel:not([disabled])",
+)
 _CHIUDI_DIALOG = (
     By.CSS_SELECTOR,
     "#movimentiTabView\\:uploadFileDialog .ui-dialog-titlebar-close",
@@ -86,6 +91,28 @@ MANCANTI_DI_FILA = 3
 PAUSA_FRA_GIORNI_S = 0.5
 
 Avanzamento = Callable[[str], None]
+
+
+def registra_giorno(
+    id_turismatica: str, giorno: date, esito: Esito, file: str, errore: str,
+) -> None:
+    """Una riga del registro per giorno: è la riga che si rimanda quando
+    qualcosa non va. Solo il numero della struttura, il giorno, l'esito, il
+    **nome** del file (che dichiara la data, non chi ha dormito) e l'errore —
+    mai il contenuto del file né un percorso."""
+    livello = logging.WARNING if esito is Esito.NON_RIUSCITO else logging.INFO
+    log.log(
+        livello, "struttura=%s giorno=%s esito=%s file=%s%s",
+        id_turismatica, f"{giorno:%d/%m/%Y}", esito.value, file or "-",
+        f" errore={errore}" if errore else "",
+    )
+
+
+def _in_breve(exc: BaseException) -> str:
+    """Il tipo e la prima riga dell'errore: Selenium allega pagine di stack del
+    driver che nel registro non servono a nessuno."""
+    prima = (str(exc).splitlines() or [""])[0][:200]
+    return f"{type(exc).__name__}: {prima}" if prima else type(exc).__name__
 
 
 class PortaleNonRaggiungibile(Exception):
@@ -203,9 +230,11 @@ def carica_struttura(
     etichetta: str,
     sorgente: Sorgente,
     periodo: Periodo,
+    prova: bool,
     avanzamento: Avanzamento | None = None,
 ) -> EsitoStruttura:
-    """Carica i giorni del periodo per **una** struttura.
+    """Carica i giorni del periodo per **una** struttura — o, con ``prova``,
+    arriva fino all'ultimo passo di ogni giorno e non lo fa (``carica_giorno``).
 
     Non solleva per i problemi di quella struttura: li mette nell'esito. Il
     chiamante passa alla successiva — una struttura rotta non deve togliere il
@@ -252,11 +281,13 @@ def carica_struttura(
         dillo(f"salto: {esito.saltata}")
         return esito
 
+    passi = _PassiSelenium(driver, attesa)
     contatore = ContatoreMancanti()
     for giorno in periodo.giorni:
         file = sorgente.file_del(giorno)
         if file is None:
             esito.segna(giorno, Esito.FILE_MANCANTE)
+            registra_giorno(id_turismatica, giorno, Esito.FILE_MANCANTE, "", "")
             if contatore.manca():
                 dillo(
                     f"{MANCANTI_DI_FILA} file mancanti di fila: mi fermo con "
@@ -271,77 +302,165 @@ def carica_struttura(
 
         dillo(f"{giorno:%d/%m/%Y}")
         try:
-            esito.segna(giorno, _carica_giorno(driver, attesa, giorno, file))
+            risultato = carica_giorno(passi, giorno, file, prova=prova)
+            errore = ""
         except Exception as exc:            # noqa: BLE001 — un giorno non ferma il mese
-            log.warning("[%s] %s: %s", etichetta, f"{giorno:%d/%m/%Y}", exc)
-            esito.segna(giorno, Esito.NON_RIUSCITO)
+            risultato = Esito.NON_RIUSCITO
+            errore = _in_breve(exc)
+        esito.segna(giorno, risultato, file.name)
+        registra_giorno(id_turismatica, giorno, risultato, file.name, errore)
         time.sleep(PAUSA_FRA_GIORNI_S)
 
     return esito
 
 
-def _carica_giorno(
-    driver: WebDriver, attesa: WebDriverWait, giorno: date, file: Path,
-) -> Esito:
-    """Carica il file di **un** giorno. Ritorna l'esito di quel giorno.
+class Passi(Protocol):
+    """I passi di **un** giorno sul portale, uno per metodo.
 
-    ⚠️ Le righe si rileggono a ogni giro: dopo un upload PrimeFaces ricostruisce
-    la tabella e i riferimenti presi prima sono ``stale``."""
-    riga = _leggi_riga(driver, giorno)
+    Esistono come interfaccia per una ragione sola: separare *cosa si fa* (la
+    sequenza, e soprattutto **se l'ultimo passo si fa**) da *come lo si fa sul
+    portale* (selettori, ``PrimeFaces.ab``, il campo nascosto). La sequenza è
+    nostra e si prova con un finto di **questa** interfaccia; il «come» resta
+    in ``_PassiSelenium`` e si prova solo dal vivo — un finto browser
+    riprodurrebbe ciò che abbiamo capito del portale, non il portale."""
+
+    def riga(self, giorno: date) -> tuple[list[str], list[str], list[str]] | None: ...
+
+    def apri_dialog(self, giorno: date) -> bool:
+        """Apre il dialog di caricamento. ``False`` se la riga non ha il pulsante."""
+        ...
+
+    def scegli_file(self, file: Path) -> None: ...
+
+    def pronto(self) -> bool:
+        """«Carica» è premibile, cioè il portale ha accettato il file scelto."""
+        ...
+
+    def conferma(self) -> bool:
+        """Preme «Carica» — **il punto di non ritorno**. ``True`` se il dialog
+        si è chiuso, che è l'unica conferma che il portale dà."""
+        ...
+
+    def annulla(self) -> None:
+        """Chiude il dialog senza caricare."""
+        ...
+
+
+def carica_giorno(passi: Passi, giorno: date, file: Path, *, prova: bool) -> Esito:
+    """Il giorno, dall'inizio alla fine. Ritorna l'esito di quel giorno.
+
+    ⚠️ **In prova si fa tutto tranne ``conferma``**: dialog aperto, file
+    scelto, «Carica» pronto — poi ``annulla``. È la sola differenza fra le due
+    modalità, ed è qui, in una riga, perché due percorsi scritti a parte
+    finirebbero per divergere proprio nel passo che conta. ``prova`` non ha
+    default: dimenticarlo non deve voler dire caricare.
+
+    Un giorno già caricato **non si tocca in nessuna delle due**: ricaricarlo
+    lo sostituirebbe (manuale della Regione), anche una correzione fatta a mano
+    sul portale."""
+    riga = passi.riga(giorno)
     if riga is not None and giorno_gia_caricato(*riga):
-        # Già dentro: non si ricarica. Ricaricare **sostituisce** quello che
-        # c'è (manuale della Regione), anche una correzione fatta a mano sul
-        # portale — ed è la ragione per cui rilanciare sullo stesso mese è
-        # innocuo.
         return Esito.GIA_CARICATO
-    bottone = _bottone_upload_della_riga(driver, giorno)
-    if bottone is None:
+    if not passi.apri_dialog(giorno):
         # Non caricato e niente pulsante: il portale non apre ancora questo
         # giorno (di solito manca il precedente). È un adempimento che manca,
         # non «già caricato».
         log.warning("%s: non caricato e il portale non lo apre", f"{giorno:%d/%m/%Y}")
         return Esito.NON_RIUSCITO
-
-    # Il dialog si apre da JS: il click "normale" sul bottone non basta, perché
-    # è PrimeFaces a dover eseguire il suo ciclo (``ps:true`` = partial submit,
-    # ``u:`` = cosa aggiornare, ``onco:`` = che fare dopo la risposta).
-    bid = bottone.get_attribute("id")
-    driver.execute_script(
-        "PrimeFaces.ab({"
-        f"s:'{bid}',p:'{bid}',u:'movimentiTabView:uploadFileDialog',"
-        "ps:true,onco:function(){PF('uploadFileDialog').show();}});"
-    )
-    attesa.until(EC.visibility_of_element_located(_DIALOG))
-
-    # Il campo file è nascosto (``display:none``): Selenium non scrive su un
-    # elemento invisibile, quindi lo si rende visibile e poi gli si passa il
-    # percorso. È il modo standard di caricare un file senza toccare la finestra
-    # di dialogo del sistema operativo — che Selenium non può guidare.
-    campo = attesa.until(EC.presence_of_element_located(_CAMPO_FILE))
-    driver.execute_script("arguments[0].style.display='block';", campo)
-    campo.send_keys(str(file.resolve()))
-
-    for tentativo in range(TENTATIVI_CARICA):
-        try:
-            carica = attesa.until(EC.element_to_be_clickable(_BOTTONE_CARICA))
-            driver.execute_script("arguments[0].click();", carica)
-            # La chiusura del dialog è la conferma: il portale non dà altro.
-            attesa.until(EC.invisibility_of_element_located(_DIALOG))
-            return Esito.CARICATO
-        except (
-            StaleElementReferenceException,
-            ElementClickInterceptedException,
-            TimeoutException,
-            WebDriverException,
-        ) as exc:
-            log.warning(
-                "tentativo %d/%d su «Carica» fallito: %s",
-                tentativo + 1, TENTATIVI_CARICA, exc,
-            )
-            time.sleep(1)
-
-    _chiudi_dialog(driver)
+    passi.scegli_file(file)
+    if prova:
+        pronto = passi.pronto()
+        passi.annulla()
+        return Esito.DA_CARICARE if pronto else Esito.NON_RIUSCITO
+    if passi.conferma():
+        return Esito.CARICATO
+    passi.annulla()
     return Esito.NON_RIUSCITO
+
+
+class _PassiSelenium:
+    """I passi sul portale vero. ⚠️ **La meccanica è quella dello script
+    originale, spostata e non riscritta**: non semplificarla senza riprovare
+    dal vivo.
+
+    Le righe si rileggono a ogni giro: dopo un upload PrimeFaces ricostruisce
+    la tabella e i riferimenti presi prima sono ``stale``."""
+
+    def __init__(self, driver: WebDriver, attesa: WebDriverWait) -> None:
+        self.driver = driver
+        self.attesa = attesa
+
+    def riga(self, giorno: date) -> tuple[list[str], list[str], list[str]] | None:
+        return _leggi_riga(self.driver, giorno)
+
+    def apri_dialog(self, giorno: date) -> bool:
+        bottone = _bottone_upload_della_riga(self.driver, giorno)
+        if bottone is None:
+            return False
+        # Il dialog si apre da JS: il click "normale" sul bottone non basta,
+        # perché è PrimeFaces a dover eseguire il suo ciclo (``ps:true`` =
+        # partial submit, ``u:`` = cosa aggiornare, ``onco:`` = che fare dopo
+        # la risposta).
+        bid = bottone.get_attribute("id")  # type: ignore[attr-defined]
+        self.driver.execute_script(
+            "PrimeFaces.ab({"
+            f"s:'{bid}',p:'{bid}',u:'movimentiTabView:uploadFileDialog',"
+            "ps:true,onco:function(){PF('uploadFileDialog').show();}});"
+        )
+        self.attesa.until(EC.visibility_of_element_located(_DIALOG))
+        return True
+
+    def scegli_file(self, file: Path) -> None:
+        # Il campo file è nascosto (``display:none``): Selenium non scrive su
+        # un elemento invisibile, quindi lo si rende visibile e poi gli si
+        # passa il percorso. È il modo standard di caricare un file senza
+        # toccare la finestra di dialogo del sistema operativo — che Selenium
+        # non può guidare. ⚠️ Scegliere il file NON carica: il fileUpload del
+        # portale non è automatico, aspetta «Carica».
+        campo = self.attesa.until(EC.presence_of_element_located(_CAMPO_FILE))
+        self.driver.execute_script("arguments[0].style.display='block';", campo)
+        campo.send_keys(str(file.resolve()))
+
+    def pronto(self) -> bool:
+        try:
+            self.attesa.until(EC.element_to_be_clickable(_BOTTONE_CARICA))
+            return True
+        except (TimeoutException, WebDriverException) as exc:
+            log.warning("«Carica» non è diventato premibile: %s", exc)
+            return False
+
+    def conferma(self) -> bool:
+        for tentativo in range(TENTATIVI_CARICA):
+            try:
+                carica = self.attesa.until(EC.element_to_be_clickable(_BOTTONE_CARICA))
+                self.driver.execute_script("arguments[0].click();", carica)
+                # La chiusura del dialog è la conferma: il portale non dà altro.
+                self.attesa.until(EC.invisibility_of_element_located(_DIALOG))
+                return True
+            except (
+                StaleElementReferenceException,
+                ElementClickInterceptedException,
+                TimeoutException,
+                WebDriverException,
+            ) as exc:
+                log.warning(
+                    "tentativo %d/%d su «Carica» fallito: %s",
+                    tentativo + 1, TENTATIVI_CARICA, exc,
+                )
+                time.sleep(1)
+        return False
+
+    def annulla(self) -> None:
+        # Prima si toglie il file scelto (il «Annulla» del fileUpload), poi si
+        # chiude il dialog: così non resta niente in coda per il giorno dopo.
+        with contextlib.suppress(WebDriverException):
+            for el in self.driver.find_elements(*_ANNULLA_FILE):
+                self.driver.execute_script("arguments[0].click();", el)
+        _chiudi_dialog(self.driver)
+        with contextlib.suppress(TimeoutException, WebDriverException):
+            WebDriverWait(self.driver, 10).until(
+                EC.invisibility_of_element_located(_DIALOG)
+            )
 
 
 def _chiudi_dialog(driver: WebDriver) -> None:

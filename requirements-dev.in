@@ -1,0 +1,5 @@
+# Per costruire e controllare l'.exe: l'app, i test, il linter, PyInstaller.
+-r requirements.in
+pytest==9.1.1
+ruff==0.16.7
+pyinstaller==6.22.2

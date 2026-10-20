@@ -169,3 +169,49 @@ def test_un_mese_intero_si_indicizza(tmp_path: Path) -> None:
     s = apri(tmp_path)
     assert len(s.per_giorno) == 30
     assert s.mancanti(settembre) == []
+
+
+#: I due formati che arrivano davvero allo zip, e lo script originale:
+#: * scaricati da beb (HostLab li salva con l'id numerico della struttura beb);
+#: * generati da HostLab per chi non ha beb (F3): l'id è il **CIN** ridotto a
+#:   lettere e cifre, o ``hostlab`` se il CIN non c'è.
+_FORMATI = {
+    "beb": "schedine_istat_99001_{g:%Y%m%d}.txt",
+    "generato_cin": "schedine_istat_IT000000X000000000_{g:%Y%m%d}.txt",
+    "generato_senza_cin": "schedine_istat_hostlab_{g:%Y%m%d}.txt",
+    "script_originale": "{g:%d%m%Y}.txt",
+}
+
+
+@pytest.mark.parametrize("formato", sorted(_FORMATI))
+def test_ogni_formato_vero_da_uno_zip_indicizza_il_mese_intero(
+    tmp_path: Path, formato: str,
+) -> None:
+    """Uno zip per formato, un mese intero: ogni giorno al suo posto, nessuno
+    fra i non riconosciuti. ⚠️ Il CIN finisce con delle cifre: la data si
+    prende dopo l'ULTIMO ``_``, non dalle prime otto cifre che capitano."""
+    ottobre = mese(2026, 10)
+    z = tmp_path / f"istat_{formato}.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for g in ottobre.giorni:
+            zf.writestr(_FORMATI[formato].format(g=g), f"movimento del {g}")
+    s = apri(z)
+    try:
+        assert s.mancanti(ottobre) == []
+        assert s.non_riconosciuti == []
+        for g in ottobre.giorni:
+            assert s.file_del(g).read_text() == f"movimento del {g}"
+    finally:
+        s.pulisci()
+
+
+def test_i_due_formati_di_hostlab_nella_stessa_cartella_non_si_confondono(
+    tmp_path: Path,
+) -> None:
+    """Un mese caricato metà da beb e metà generato (il passaggio di un tenant
+    da beb a «Non uso beb.it»): ogni file vale per il suo giorno."""
+    (tmp_path / "schedine_istat_99001_20261030.txt").write_text("beb")
+    (tmp_path / "schedine_istat_IT000000X000000000_20261031.txt").write_text("gen")
+    s = apri(tmp_path)
+    assert s.file_del(date(2026, 10, 30)).read_text() == "beb"
+    assert s.file_del(date(2026, 10, 31)).read_text() == "gen"

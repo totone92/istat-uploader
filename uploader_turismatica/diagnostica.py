@@ -9,9 +9,13 @@ l'utente che aspetta. Questo controllo le scopre prima, e in trenta secondi.
 Due modi di chiamarlo, stesso testo:
 
 * il bottone «Verifica il computer» nella finestra;
-* ``CaricaMovimentiTurismatica.exe --controllo``, che lo scrive anche in un
+* ``IstatUploader.exe --controllo``, che lo scrive anche in un
   file — perché un .exe senza console non ha dove stampare, e il file è l'unica
   cosa che si può poi mandare a qualcuno.
+
+C'è anche ``--autoverifica <file>``, che **non è per l'utente**: la usa la
+build su GitHub per controllare l'.exe appena costruito senza aprire né Chrome
+né una finestra (vedi ``autoverifica``).
 """
 from __future__ import annotations
 
@@ -105,3 +109,48 @@ def da_riga_di_comando() -> int:
     if destinazione is not None:
         print(f"\n(scritto anche in {destinazione})")
     return 0 if "✗" not in testo else 1
+
+
+def autoverifica() -> list[str]:
+    """Le parti dell'eseguibile che si sono già perse una volta impacchettando.
+
+    Non apre niente: controlla che **dentro** l'.exe ci siano i moduli che
+    Selenium carica per nome a runtime (senza, l'app partiva e moriva al primo
+    «Avvia» con ``No module named 'selenium.webdriver.chrome.webdriver'``),
+    l'eseguibile di Selenium Manager (che non è un modulo Python e va copiato a
+    parte) e Tk. Ritorna i problemi: lista vuota = a posto."""
+    problemi: list[str] = []
+    import importlib
+
+    for modulo in (
+        "tkinter",
+        "selenium.webdriver.chrome.webdriver",
+        "selenium.webdriver.chrome.service",
+        "selenium.webdriver.support.expected_conditions",
+        "uploader_turismatica.app",
+        "uploader_turismatica.portale",
+    ):
+        try:
+            importlib.import_module(modulo)
+        except Exception as exc:  # noqa: BLE001
+            problemi.append(f"manca {modulo}: {exc}")
+    try:
+        from selenium.webdriver.common.selenium_manager import SeleniumManager
+
+        binario = Path(SeleniumManager._get_binary())  # noqa: SLF001
+        if not binario.is_file():
+            problemi.append(f"Selenium Manager non è nel pacchetto ({binario.name})")
+    except Exception as exc:  # noqa: BLE001
+        problemi.append(f"Selenium Manager non è nel pacchetto: {exc}")
+    return problemi
+
+
+def autoverifica_da_riga_di_comando(destinazione: Path) -> int:
+    problemi = autoverifica()
+    testo = "\n".join(
+        [f"Istat Uploader v{__version__} — autoverifica",
+         f"impacchettato: {'sì' if getattr(sys, 'frozen', False) else 'no'}"]
+        + ([f"✗ {p}" for p in problemi] or ["✓ tutto dentro"])
+    )
+    destinazione.write_text(testo + "\n", encoding="utf-8")
+    return 1 if problemi else 0

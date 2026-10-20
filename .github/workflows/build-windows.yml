@@ -1,0 +1,109 @@
+# Costruisce dist\IstatUploader.exe su una macchina Windows di GitHub.
+#
+# - a ogni push su main, e a mano da Actions → «Build Windows» → Run workflow:
+#   l'.exe esce come ARTEFATTO scaricabile dalla pagina del giro;
+# - a ogni tag vX.Y.Z: in più lo allega a una RELEASE (link stabile, non scade).
+#
+# Nessun segreto: usa solo il token che GitHub dà a ogni giro (github.token),
+# con il permesso di scrivere i contenuti solo nel passo della release.
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  exe:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Dipendenze (versioni fissate)
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: La versione del tag è quella dell'app
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $app = python -c "import uploader_turismatica as u; print(u.__version__)"
+          if ("v$app" -ne "${{ github.ref_name }}") {
+            throw "tag ${{ github.ref_name }} ma l'app dice v$app: allinea __version__"
+          }
+
+      - name: Costruisco IstatUploader.exe
+        run: python -m PyInstaller IstatUploader.spec --noconfirm --clean
+
+      # L'.exe appena fatto controlla di avere tutto dentro (i moduli Selenium
+      # caricati per nome, Selenium Manager, Tk). Non apre né Chrome né finestre.
+      - name: Autoverifica dell'eseguibile
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\IstatUploader.exe `
+                -ArgumentList '--autoverifica', 'dist\autoverifica.txt' -Wait -PassThru
+          Get-Content dist\autoverifica.txt
+          if ($p.ExitCode -ne 0) { throw "autoverifica fallita ($($p.ExitCode))" }
+          $mb = [math]::Round((Get-Item dist\IstatUploader.exe).Length / 1MB, 1)
+          "IstatUploader.exe: $mb MB" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
+
+      # Il controllo del computer, come lo farà chi lo usa: apre e chiude Chrome
+      # davvero (Chrome c'è sulle macchine di GitHub) e prova Selenium Manager.
+      # Informativo: una macchina di GitHub non è il PC di un albergatore, e
+      # un suo capriccio non deve fermare la build.
+      - name: Controllo del computer (apre Chrome)
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\IstatUploader.exe `
+                -ArgumentList '--controllo' -Wait -PassThru
+          Get-Content "$env:APPDATA\UploaderTurismatica\controllo.txt"
+          if ($p.ExitCode -ne 0) { throw "controllo: qualcosa con la ✗" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IstatUploader-${{ github.ref_name }}-${{ github.run_number }}
+          path: dist/IstatUploader.exe
+          if-no-files-found: error
+          retention-days: 90
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: exe
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: IstatUploader-${{ github.ref_name }}-${{ github.run_number }}
+      - name: Release con l'.exe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" IstatUploader.exe \
+            --repo "${{ github.repository }}" \
+            --title "Istat Uploader ${{ github.ref_name }}" \
+            --notes "Scarica IstatUploader.exe qui sotto. Prima volta: leggi BUILD_WINDOWS.md (si parte in MODALITÀ PROVA)."

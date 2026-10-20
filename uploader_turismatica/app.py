@@ -15,12 +15,22 @@ fra un'app che funziona e una che non funziona.
 smetterebbe di ridisegnarsi e Windows la segnalerebbe come «non risponde». Il
 lavoro sta su un thread, e parla con la finestra attraverso una coda letta da
 ``after()`` — il modo standard, e l'unico che non fa toccare i widget da fuori.
+
+⚠️ **Si parte SEMPRE in modalità prova**, a ogni avvio e non solo al primo:
+arriva fino all'ultimo passo di ogni giorno e non preme «Carica». Il portale
+**sostituisce** un giorno già caricato se lo si ricarica, quindi il giro vero
+dev'essere una scelta fatta guardando la fascia rossa, non lo stato in cui
+l'app si è svegliata. Passare alla modalità vera chiede conferma; tornare alla
+prova no.
 """
 from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import queue
+import subprocess
+import sys
 import threading
 import tkinter
 import traceback
@@ -42,9 +52,9 @@ from tkinter import (
 )
 from tkinter.scrolledtext import ScrolledText
 
-from uploader_turismatica import __version__
+from uploader_turismatica import __version__, registro
 from uploader_turismatica.chrome import ChromeNonDisponibile, apri_chrome
-from uploader_turismatica.esito import EsitoStruttura, riepilogo
+from uploader_turismatica.esito import Esito, EsitoStruttura, riepilogo
 from uploader_turismatica.periodo import MESI, Periodo, da_campi, mese_scorso
 from uploader_turismatica.portale import (
     apri_portale,
@@ -52,11 +62,27 @@ from uploader_turismatica.portale import (
     sembra_dentro,
 )
 from uploader_turismatica.sorgente import Sorgente, SorgenteNonValida, apri
-from uploader_turismatica.strutture import Struttura, carica, percorso_file, salva
+from uploader_turismatica.strutture import Struttura, carica, salva
 
 log = logging.getLogger(__name__)
 
 _SPUNTA, _VUOTO = "☑", "☐"
+
+#: La modalità con cui l'app si sveglia. ⚠️ ``True`` = prova: vedi la docstring.
+PROVA_ALL_AVVIO = True
+
+_FASCIA = {
+    True: (
+        "#fff4c2", "#5c4600",
+        "MODALITÀ PROVA — arrivo fino a «Carica» e mi fermo. Non carico niente.",
+        "Passa alla modalità VERA…",
+    ),
+    False: (
+        "#c62828", "#ffffff",
+        "MODALITÀ VERA — carico davvero sul portale.",
+        "Torna alla modalità prova",
+    ),
+}
 
 
 # ─── messaggi dal thread di lavoro alla finestra ─────────────────────────────
@@ -76,6 +102,7 @@ class ChiediSpid:
 class Finito:
     esiti: list[EsitoStruttura]
     etichetta_periodo: str
+    prova: bool
 
 
 @dataclass
@@ -84,9 +111,11 @@ class Rotto:
 
 
 class App:
-    def __init__(self, root: Tk) -> None:
+    def __init__(self, root: Tk, percorso_registro: Path | None = None) -> None:
         self.root = root
-        self.root.title(f"Carica movimenti su Turismatica — v{__version__}")
+        self.root.title(f"Istat Uploader — Turismatica — v{__version__}")
+        self.prova = PROVA_ALL_AVVIO
+        self.percorso_registro = percorso_registro
         self.root.geometry("880x720")
         self.root.minsize(760, 620)
 
@@ -99,6 +128,7 @@ class App:
 
         self._costruisci()
         self._ridisegna_strutture()
+        self._ridisegna_fascia()
         self.root.after(100, self._svuota_coda)
         self.root.protocol("WM_DELETE_WINDOW", self._chiudi)
 
@@ -106,6 +136,16 @@ class App:
 
     def _costruisci(self) -> None:
         pad = {"padx": 10, "pady": 6}
+
+        # 0. la modalità: in cima, colorata, impossibile da non vedere
+        self.fascia = tkinter.Frame(self.root, bd=0)
+        self.fascia.pack(fill=X)
+        self.fascia_testo = tkinter.Label(
+            self.fascia, font=("Segoe UI", 12, "bold"), anchor=W, padx=12, pady=10,
+        )
+        self.fascia_testo.pack(side=LEFT, fill=X, expand=True)
+        self.fascia_bottone = ttk.Button(self.fascia, command=self._cambia_modalita)
+        self.fascia_bottone.pack(side=RIGHT, padx=12, pady=6)
 
         # 1. periodo
         f1 = ttk.LabelFrame(self.root, text=" 1.  Che periodo carico ")
@@ -183,9 +223,61 @@ class App:
         ttk.Label(f3, textvariable=self.stato).pack(side=LEFT, padx=12)
 
         self.log = ScrolledText(self.root, height=10, wrap="word", state="disabled")
-        self.log.pack(fill=BOTH, expand=True, padx=10, pady=(0, 10))
+        self.log.pack(fill=BOTH, expand=True, padx=10, pady=(0, 4))
+
+        # il registro: dove sta, e un modo per arrivarci senza cercarlo
+        f4 = ttk.Frame(self.root)
+        f4.pack(fill=X, padx=10, pady=(0, 10))
+        ttk.Label(
+            f4, foreground="#666",
+            text=(
+                f"Registro: {self.percorso_registro}" if self.percorso_registro
+                else "Registro: non riesco a scriverlo su questo computer"
+            ),
+        ).pack(side=LEFT)
+        if self.percorso_registro is not None:
+            ttk.Button(
+                f4, text="Apri la cartella del registro", command=self._apri_registro,
+            ).pack(side=RIGHT)
 
         self._aggiorna_modo()
+
+    # ── modalità ─────────────────────────────────────────────────────────────
+
+    def _ridisegna_fascia(self) -> None:
+        sfondo, colore, testo, bottone = _FASCIA[self.prova]
+        self.fascia.configure(bg=sfondo)
+        self.fascia_testo.configure(bg=sfondo, fg=colore, text=testo)
+        self.fascia_bottone.configure(text=bottone)
+
+    def _cambia_modalita(self) -> None:
+        if self.lavoro is not None and self.lavoro.is_alive():
+            messagebox.showinfo("Aspetta", "Sto lavorando: cambia modalità a giro finito.")
+            return
+        if self.prova and not messagebox.askyesno(
+            "Passo alla modalità vera?",
+            "In modalità vera premo «Carica» davvero, giorno per giorno.\n\n"
+            "⚠️ Se un giorno è già sul portale lo salto. Ma se il portale lo "
+            "mostra come non caricato e lo carico, il file SOSTITUISCE quello "
+            "che c'era — anche una correzione fatta a mano.\n\n"
+            "Hai già fatto un giro di prova su questo periodo e l'elenco era "
+            "giusto?",
+            icon="warning", default="no",
+        ):
+            return
+        self.prova = not self.prova
+        log.info("modalità: %s", "prova" if self.prova else "VERA")
+        self._ridisegna_fascia()
+
+    def _apri_registro(self) -> None:
+        if self.percorso_registro is None:
+            return
+        cartella = self.percorso_registro.parent
+        with contextlib.suppress(Exception):
+            if sys.platform.startswith("win"):
+                os.startfile(cartella)  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", str(cartella)])
 
     def _aggiorna_modo(self) -> None:
         per_mese = self.modo.get() == "mese"
@@ -340,17 +432,35 @@ class App:
             )
             return
 
+        prova = self.prova
+        if not prova and not messagebox.askyesno(
+            "Carico davvero?",
+            f"Carico DAVVERO {periodo.etichetta} per: "
+            + ", ".join(s.etichetta for s in scelte) + ".\n\nProcedo?",
+            icon="warning", default="no",
+        ):
+            return
+
         self._pulisci_log()
-        self._scrivi(f"Periodo: {periodo.etichetta}")
+        self._scrivi(
+            f"Periodo: {periodo.etichetta} — "
+            + ("MODALITÀ PROVA, non carico niente" if prova else "MODALITÀ VERA")
+        )
+        log.info(
+            "giro: inizio | versione=%s | modalità=%s | periodo=%s | strutture=%s",
+            __version__, "prova" if prova else "VERA", periodo.etichetta,
+            ",".join(s.id_turismatica for s in scelte),
+        )
         self.bottone.configure(state="disabled")
+        self.fascia_bottone.configure(state="disabled")
         self.vai.clear()
         self.annullato.clear()
         self.lavoro = threading.Thread(
-            target=self._lavora, args=(periodo, scelte), daemon=True,
+            target=self._lavora, args=(periodo, scelte, prova), daemon=True,
         )
         self.lavoro.start()
 
-    def _lavora(self, periodo: Periodo, scelte: list[Struttura]) -> None:
+    def _lavora(self, periodo: Periodo, scelte: list[Struttura], prova: bool) -> None:
         """Gira sul thread di lavoro: **non tocca un solo widget**."""
         driver = None
         sorgenti: list[Sorgente] = []
@@ -391,6 +501,7 @@ class App:
                         etichetta=s.etichetta,
                         sorgente=sorgente,
                         periodo=periodo,
+                        prova=prova,
                         avanzamento=lambda m, et=s.etichetta: self.coda.put(
                             Stato(f"{et} — {m}")
                         ),
@@ -402,7 +513,17 @@ class App:
                         etichetta=s.etichetta, id_turismatica=s.id_turismatica,
                         saltata=f"si è interrotta ({type(exc).__name__})",
                     ))
-            self.coda.put(Finito(esiti, periodo.etichetta))
+            log.info(
+                "giro: fine | modalità=%s | %s", "prova" if prova else "VERA",
+                " ; ".join(
+                    f"{e.id_turismatica}: "
+                    + (f"saltata ({e.saltata})" if e.saltata else ", ".join(
+                        f"{k.value}={e.quanti(k)}" for k in Esito if e.quanti(k)
+                    ))
+                    for e in esiti
+                ),
+            )
+            self.coda.put(Finito(esiti, periodo.etichetta, prova))
         except ChromeNonDisponibile as exc:
             self.coda.put(Rotto(str(exc)))
         except Exception:                     # noqa: BLE001
@@ -434,6 +555,7 @@ class App:
                 elif isinstance(msg, Rotto):
                     self.stato.set("fermo")
                     self.bottone.configure(state="normal")
+                    self.fascia_bottone.configure(state="normal")
                     messagebox.showerror("Mi sono fermato", msg.messaggio)
         except queue.Empty:
             pass
@@ -491,9 +613,10 @@ class App:
         top.after(500, chiudi_se_partito)
 
     def _mostra_riepilogo(self, msg: Finito) -> None:
-        testo = riepilogo(msg.esiti, msg.etichetta_periodo)
-        self.stato.set("finito")
+        testo = riepilogo(msg.esiti, msg.etichetta_periodo, prova=msg.prova)
+        self.stato.set("finito (prova)" if msg.prova else "finito")
         self.bottone.configure(state="normal")
+        self.fascia_bottone.configure(state="normal")
         self._scrivi("\n" + "─" * 60 + "\n" + testo)
         _Riepilogo(self.root, testo)
 
@@ -618,14 +741,21 @@ class _Riepilogo:
 
 
 def avvia() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)-7s | %(message)s",
-    )
-    log.info("impostazioni in %s", percorso_file())
+    percorso = registro.configura()
+    log.info("avvio | versione=%s | modalità iniziale=%s", __version__,
+             "prova" if PROVA_ALL_AVVIO else "VERA")
+
+    # Un errore non previsto finisce nel registro, non nel nulla: un .exe senza
+    # console non ha altro posto dove dirlo.
+    def _non_previsto(tipo, valore, traccia) -> None:  # type: ignore[no-untyped-def]
+        log.error("errore non previsto", exc_info=(tipo, valore, traccia))
+
+    sys.excepthook = _non_previsto
     root = Tk()
+    root.report_callback_exception = _non_previsto  # type: ignore[method-assign]
     # Il tema nativo di Windows. Su Linux/macOS non esiste e non importa.
     with contextlib.suppress(Exception):
         ttk.Style().theme_use("vista")
-    App(root)
+    App(root, percorso)
     root.mainloop()
+    log.info("chiuso")

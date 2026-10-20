@@ -12,4 +12,4 @@ Non genera e non converte niente: i .txt li produce beb.it e li scarica
 HostLab. Qui si caricano e basta.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"

@@ -1,4 +1,8 @@
-# Uploader Turismatica
+# Istat Uploader — Turismatica
+
+> **Per averlo e provarlo su Windows → [`BUILD_WINDOWS.md`](BUILD_WINDOWS.md).**
+> L'.exe lo costruisce GitHub (`.github/workflows/build-windows.yml`) a ogni
+> push su `main`; con un tag `vX.Y.Z` finisce anche in una Release.
 
 Carica i **movimenti ISTAT giornalieri** su Turismatica (Regione Umbria).
 Gira sul PC del gestore, non sul nostro server.
@@ -20,6 +24,17 @@ perché serve a sostituire il file. Un giorno è dentro se il portale scrive
 ci sono (anche tutti zero) senza la doppia freccia. Un giorno che il portale
 non apre ancora è **non riuscito**, non «già caricato».
 
+**Si parte sempre in MODALITÀ PROVA** (dal 20/10/2026, v1.1.0): ogni giorno
+arriva fino a «Carica» pronto e lì si chiude il dialog senza premerlo; il
+riepilogo elenca `giorno ← file`. La differenza fra le due modalità è **una
+riga** in `portale.carica_giorno` (e `prova` non ha default). Il portale
+sostituisce un giorno ricaricato: il giro vero è un gesto, con due conferme.
+
+**Il registro** `IstatUploader.log` sta accanto all'.exe (`registro.py`): una
+riga per giorno — struttura, giorno, esito, nome del file, errore — senza
+credenziali (non ce ne sono), senza dati degli ospiti e con la cartella
+personale scritta `~`.
+
 ---
 
 ## ⚠️ COSA NON HO POTUTO PROVARE DA QUI
@@ -29,15 +44,18 @@ Queste cose **non sono verificate** e vanno provate su un PC vero:
 
 | cosa | perché no | come si scopre se è rotta |
 |---|---|---|
-| **il `.exe` per Windows** | PyInstaller **non compila per un altro sistema**: impacchetta l'interprete della macchina su cui gira. Da Linux esce un binario Linux. | esegui `build_windows.ps1` su Windows |
+| **il `.exe` per Windows** | PyInstaller **non compila per un altro sistema**: impacchetta l'interprete della macchina su cui gira. Da Linux esce un binario Linux. | ✅ ora lo costruisce GitHub su `windows-latest`, e l'.exe fa `--autoverifica` di sé (moduli Selenium, Selenium Manager, Tk) e `--controllo` (apre Chrome). Resta da provare **su un PC vero** |
 | **la finestra** | nessun display grafico in questo ambiente (niente X, e `xvfb` richiede i permessi di amministratore) | si vede al primo avvio |
 | **il caricamento vero sul portale** | serve un accesso SPID a Turismatica, che è di una persona | primo giro vero, su **un mese solo** |
 | **SmartScreen** | è una reputazione di Microsoft su un file firmato, non una proprietà del codice | primo download su un PC altrui |
 
 **Cosa invece è provato**, e non a parole:
 
-- **49 test** su tutto ciò che non è il browser: i due nomi dei file, lo zip,
-  il periodo, il riepilogo, le regole del portale, le strutture salvate;
+- **76 test** su tutto ciò che non è il browser: i nomi dei file (beb,
+  generati da HostLab col CIN, script originale), lo zip, il periodo, il
+  riepilogo, le regole del portale, le strutture salvate, **la modalità prova**
+  (con un finto della *nostra* interfaccia `Passi`, non del portale) e il
+  registro;
 - **il pacchetto si costruisce e il binario congelato parte**: arriva fino ad
   aprire la finestra e fallisce solo per il display mancante;
 - ⭐ **Selenium Manager funziona da dentro il binario congelato**: trova il
@@ -69,19 +87,16 @@ ragione per cui esiste `--controllo`.
 
 Nell'ordine. Se una riga fallisce, fermati lì.
 
-1. **Costruisci il `.exe`** su Windows:
-   ```powershell
-   .\build_windows.ps1
-   ```
-   Fallisce apposta se i test o il linter non passano. Alla fine:
-   `dist\CaricaMovimentiTurismatica.exe`.
+1. **Procurati il `.exe`**: dalla build di GitHub o con `build.bat` (vedi
+   `BUILD_WINDOWS.md`). Entrambe falliscono apposta se i test o il linter non
+   passano. Alla fine: `dist\IstatUploader.exe`.
 
 2. **Copia SOLO il `.exe`** su un PC che **non ha Python** — è l'unica prova che
    conta. Un PC con Python può mascherare un modulo mancante.
 
 3. **Esegui il controllo del computer**, prima di qualunque cosa:
    ```powershell
-   .\CaricaMovimentiTurismatica.exe --controllo
+   .\IstatUploader.exe --controllo
    ```
    Scrive anche in `%APPDATA%\UploaderTurismatica\controllo.txt` (un `.exe`
    senza console non ha dove stampare). Devono uscire **tre** ✓:
@@ -92,7 +107,7 @@ Nell'ordine. Se una riga fallisce, fermati lì.
 4. **Avvia normalmente** (doppio clic). Segna quanti secondi passano prima che
    compaia la finestra: con `onefile` si estrae in una temporanea a ogni avvio,
    e 5–15 s sono normali. Se dà fastidio, metti `ONEDIR = True` in
-   `uploader.spec` (avvio immediato, ma una cartella invece di un file solo).
+   `IstatUploader.spec` (avvio immediato, ma una cartella invece di un file solo).
 
 5. **SmartScreen**: al primo avvio scaricato da internet comparirà
    *«Windows ha protetto il PC»* → «Ulteriori informazioni» → «Esegui
@@ -120,14 +135,17 @@ Nell'ordine. Se una riga fallisce, fermati lì.
 ### Come si impacchetta
 
 `PyInstaller` in modalità **onefile**: un `.exe` solo, che si scarica e si apre.
-Niente Python da installare, niente cartelle. La ricetta è in `uploader.spec`.
+Niente Python da installare, niente cartelle. La ricetta è in
+`IstatUploader.spec`; le versioni sono fissate in `requirements.txt` e
+`requirements-dev.txt` (generati da `requirements*.in` con `uv pip compile`,
+risolti **per Windows**: il comando è in testa a `requirements.in`).
 
 ### Quanto pesa
 
 **Misurato**: il binario equivalente su Linux è **32 MB**. Su Windows attendersi
 lo stesso ordine di grandezza (25–40 MB): dentro ci sono l'interprete Python,
 Tk per la finestra e Selenium. ⚠️ **Non è un numero verificato su Windows** —
-lo dirà `build_windows.ps1`, che lo stampa.
+lo dice il riepilogo della build su GitHub.
 
 Cosa NON c'è dentro, ed è voluto: `webdriver_manager` (superfluo), e `numpy`,
 `pandas`, `PIL`, `PyQt` & co. sono esclusi esplicitamente nella spec — non li
@@ -200,11 +218,14 @@ uploader_turismatica/
 ├── sorgente.py      zip/cartella → file per giorno — PURO, provato
 ├── strutture.py     le strutture salvate — provato
 ├── esito.py         il riepilogo per l'albergatore — PURO, provato
-├── portale.py       la meccanica Turismatica — le DECISIONI sono pure e provate,
-│                    i selettori no (serve il portale)
+├── portale.py       la meccanica Turismatica — le DECISIONI sono pure e provate
+│                    (anche la sequenza di un giorno, `carica_giorno`, e la
+│                    prova), i selettori no (serve il portale: `_PassiSelenium`)
+├── registro.py      il file di log accanto all'.exe, senza dati personali
 ├── chrome.py        avvio del browser
-├── diagnostica.py   il controllo del computer (--controllo)
-└── app.py           la finestra
+├── diagnostica.py   il controllo del computer (--controllo) e l'autoverifica
+│                    dell'.exe per la build (--autoverifica <file>)
+└── app.py           la finestra (fascia PROVA/VERA in cima)
 ```
 
 Le **decisioni** stanno fuori da Selenium e dai widget apposta: è ciò che si può
@@ -280,8 +301,8 @@ plausibilità della data, che è un indovinello. C'è un test apposta.
 ## Sviluppo
 
 ```bash
-uv venv && uv pip install -e ".[dev]"
-.venv/bin/python -m pytest -q          # 49 test
+uv venv && uv pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q          # 76 test
 .venv/bin/python -m ruff check .
 .venv/bin/python -m uploader_turismatica            # la finestra
 .venv/bin/python -m uploader_turismatica --controllo

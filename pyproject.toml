@@ -1,6 +1,6 @@
 [project]
 name = "uploader-turismatica"
-version = "1.0.0"
+version = "1.1.0"
 description = "Carica i movimenti ISTAT giornalieri su Turismatica (Regione Umbria)"
 requires-python = ">=3.11"
 dependencies = [
@@ -26,6 +26,9 @@ include = ["uploader_turismatica*"]
 [tool.ruff]
 line-length = 90
 target-version = "py311"
+# Lo script originale resta fuori da git e fuori dal lint (ce n'è una copia
+# congelata in docs/, anche lei com'era).
+extend-exclude = ["Uploader2.py", "docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "DTZ"]
@@ -33,3 +36,6 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Il pacchetto si importa dalla cartella del progetto: niente installazione
+# in modalità sviluppo, né qui né nella build di Windows.
+pythonpath = ["."]

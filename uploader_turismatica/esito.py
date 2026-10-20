@@ -14,6 +14,11 @@ ognuna ha un rimedio diverso:
 * **non riuscito** — il portale non l'ha accettato. Il rimedio è riprovare, e
   se insiste guardare quel giorno a mano.
 
+E una quinta, che esiste solo in **modalità prova**: **da caricare** — il
+giorno è arrivato fino all'ultimo passo (dialog aperto, file scelto, «Carica»
+pronto) e lì ci si è fermati. Non è «caricato», e il riepilogo non deve
+lasciarlo intendere: è l'elenco di ciò che *partirebbe*.
+
 ⚠️ **«Non riuscito» non si fonde con «già caricato»**, che è la tentazione
 naturale quando si conta solo il successo: sono la stessa riga non toccata con
 due significati opposti — uno è a posto, l'altro è un adempimento che manca.
@@ -32,6 +37,8 @@ class Esito(StrEnum):
     GIA_CARICATO = "gia_caricato"
     FILE_MANCANTE = "file_mancante"
     NON_RIUSCITO = "non_riuscito"
+    #: Solo in modalità prova: tutto pronto, «Carica» NON premuto.
+    DA_CARICARE = "da_caricare"
 
 
 @dataclass
@@ -45,9 +52,14 @@ class EsitoStruttura:
     saltata: str | None = None
     #: Nomi di file che non dichiarano una data: quasi sempre la cartella sbagliata.
     non_riconosciuti: list[str] = field(default_factory=list)
+    #: Il nome del file usato per ogni giorno toccato: in prova è la risposta
+    #: a «cosa avresti caricato?», e il nome è anche ciò che dichiara la data.
+    file: dict[date, str] = field(default_factory=dict)
 
-    def segna(self, giorno: date, esito: Esito) -> None:
+    def segna(self, giorno: date, esito: Esito, file: str | None = None) -> None:
         self.giorni[giorno] = esito
+        if file is not None:
+            self.file[giorno] = file
 
     def quanti(self, esito: Esito) -> int:
         return sum(1 for e in self.giorni.values() if e is esito)
@@ -70,13 +82,27 @@ def _giorni(date_: list[date], massimo: int = 8) -> str:
     return ", ".join(f"{d:%d/%m}" for d in date_)
 
 
-def riepilogo(esiti: list[EsitoStruttura], periodo_etichetta: str) -> str:
-    """Il testo finale. Nessun nome di file, nessun codice, nessuna riga di log:
-    per ogni struttura cosa è a posto e **cosa resta da fare**."""
+def riepilogo(
+    esiti: list[EsitoStruttura], periodo_etichetta: str, *, prova: bool,
+) -> str:
+    """Il testo finale. Nessun codice, nessuna riga di log: per ogni struttura
+    cosa è a posto e **cosa resta da fare**.
+
+    ⚠️ ``prova`` **non ha default**: un riepilogo di prova letto come uno vero
+    farebbe credere caricato un mese che non lo è. In prova (e solo lì) si
+    elencano i file giorno per giorno: è la cosa da controllare prima del giro
+    vero."""
     if not esiti:
         return "Non c'era niente da caricare."
 
-    righe: list[str] = [f"Periodo: {periodo_etichetta}", ""]
+    righe: list[str] = []
+    if prova:
+        righe += [
+            "MODALITÀ PROVA — NON HO CARICATO NIENTE.",
+            "Ecco cosa avrei caricato. Il portale è rimasto com'era.",
+            "",
+        ]
+    righe += [f"Periodo: {periodo_etichetta}", ""]
     da_fare: list[str] = []
 
     for e in esiti:
@@ -88,12 +114,18 @@ def riepilogo(esiti: list[EsitoStruttura], periodo_etichetta: str) -> str:
 
         fatti = e.quanti(Esito.CARICATO)
         gia = e.quanti(Esito.GIA_CARICATO)
+        pronti = e.quanti(Esito.DA_CARICARE)
         parti = []
         if fatti:
             parti.append(f"{fatti} giorni caricati")
+        if pronti:
+            parti.append(f"{pronti} giorni da caricare")
         if gia:
             parti.append(f"{gia} già c'erano")
         righe.append(f"■ {e.etichetta} — " + (", ".join(parti) if parti else "niente da fare"))
+        if prova:
+            for g in e.elenco(Esito.DA_CARICARE):
+                righe.append(f"   · {g:%d/%m/%Y}  ←  {e.file.get(g, '?')}")
 
         mancanti = e.elenco(Esito.FILE_MANCANTE)
         if mancanti:
@@ -116,8 +148,16 @@ def riepilogo(esiti: list[EsitoStruttura], periodo_etichetta: str) -> str:
             )
         righe.append("")
 
+    if prova:
+        righe.append(
+            "Se l'elenco è giusto: passa alla MODALITÀ VERA e rilancia. "
+            "I giorni che già c'erano li salto anche lì."
+        )
+        if da_fare:
+            righe.append("")
     if not da_fare:
-        righe.append("Tutto a posto: non resta niente da fare.")
+        if not prova:
+            righe.append("Tutto a posto: non resta niente da fare.")
     else:
         righe.append("DA FARE:")
         righe.extend(f"  {i}. {r}" for i, r in enumerate(da_fare, 1))

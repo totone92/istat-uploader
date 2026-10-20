@@ -5,3 +5,9 @@ dist/
 *.spec.bak
 .venv/
 uploader_turismatica.egg-info/
+
+# lo script originale di lavoro: resta fuori da git
+Uploader2.py
+*.log
+*.log.*
+.venv-build/

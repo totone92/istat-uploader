@@ -1,0 +1,9 @@
+# Le dipendenze dell'app, da cui si generano i due requirements fissati.
+# Rigenerare (da Linux va bene: si risolve PER Windows):
+#   uv pip compile requirements.in --python-platform windows --python-version 3.12 -o requirements.txt
+#   uv pip compile requirements-dev.in --python-platform windows --python-version 3.12 -o requirements-dev.txt
+#
+# Selenium >= 4.6 porta dentro Selenium Manager (trova Chrome, scarica il
+# ChromeDriver giusto): niente driver da gestire a mano. Fissata alla versione
+# con cui girano i test.
+selenium==4.49.0

@@ -73,7 +73,12 @@ file `.zip`. **Non aprirlo**: lasciandolo com'è fai prima.
    *(Se l'avevi già aperto e hai una cartella con dentro tanti file `.txt`, va
    bene lo stesso: dì di no allo zip e ti fa scegliere la cartella.)*
 
-### 3. Premi **Avvia**
+### 3. Scegli la modalità, poi premi **Avvia**
+
+In cima c'è una fascia colorata. Il programma si apre sempre in **PROVA**
+(gialla): fa tutto ma **non carica niente**, e alla fine ti dice cosa avrebbe
+caricato. Quando l'elenco ti torna, premi **«Passa alla modalità VERA…»** (la
+fascia diventa rossa) e rilancia: ora carica davvero.
 
 Si apre **Google Chrome** sulla pagina di Turismatica, e il programma **si
 ferma**. Compare una finestra che dice **«Ora tocca a te»**.

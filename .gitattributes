@@ -1,0 +1,2 @@
+# cmd.exe legge male i .bat con a capo Unix (etichette e goto)
+*.bat text eol=crlf
