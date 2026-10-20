@@ -1,6 +1,6 @@
 [project]
 name = "uploader-turismatica"
-version = "1.1.0"
+version = "1.1.1"
 description = "Carica i movimenti ISTAT giornalieri su Turismatica (Regione Umbria)"
 requires-python = ">=3.11"
 license = { text = "MIT" }

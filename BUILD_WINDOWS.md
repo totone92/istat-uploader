@@ -17,8 +17,10 @@ Per la Release non serve un account GitHub; per gli artefatti delle build sì
 **Dalla Release** (link fisso, la versione «ufficiale»):
 
 1. apri <https://github.com/totone92/istat-uploader/releases/latest>;
-2. in fondo, sotto **Assets**, clicca **`IstatUploader.exe`**: si scarica
-   direttamente.
+2. in fondo, sotto **Assets**, scarica i due file:
+   - **`IstatUploader.exe`** — il programma;
+   - **`prova-settembre-2026.zip`** — file ISTAT **inventati** per la prima
+     prova (sotto). Non aprirlo: si sceglie così com'è dal programma.
 
 **Dall'ultima build** (la più recente, anche se non ancora in una Release):
 
@@ -133,27 +135,45 @@ Nell'ordine. Se un passo non torna, **fermati lì** e manda il registro.
 3. Premi **«Verifica il computer»**: Chrome si apre e si chiude da solo. Devono
    uscire **tre ✓**.
 
-### 1. Prova su un mese GIÀ caricato (per esempio uno caricato a mano)
+### 1. La prima prova: con lo zip di prova
 
-Serve a vedere che riconosce i giorni già dentro, che è la cosa che protegge
-il portale nel giro vero.
+Non serve nessun file ISTAT vero. Lo zip `prova-settembre-2026.zip` (dalla
+Release, accanto all'.exe) ha un file per ogni giorno di **settembre 2026**,
+con numeri **inventati** e la struttura «STRUTTURA DI PROVA». Dentro c'è anche
+`PROVA.txt`: finché il programma lo vede, **la modalità vera è bloccata** per
+quello zip. Non può finire sul portale nemmeno per sbaglio.
 
 1. **«Aggiungi struttura…»**: un nome a piacere e il **numero su Turismatica**
-   (nell'indirizzo della pagina dei movimenti, dopo `idStruttura=`; non è il
-   numero di beb.it).
-2. Seleziona la riga → **«Scegli i file…»** → lo zip ISTAT di quel mese
-   (scaricato da HostLab: Report → ISTAT; vanno bene sia i file di beb sia
-   quelli che genera HostLab, `schedine_istat_<id>_<AAAAMMGG>.txt`).
-3. In alto scegli **quel mese** e premi **Avvia**.
+   di una struttura a cui puoi accedere (nell'indirizzo della pagina dei
+   movimenti, dopo `idStruttura=`; non è il numero di beb.it).
+2. Seleziona la riga → **«Scegli i file…»** → `prova-settembre-2026.zip`.
+3. In alto scegli **settembre 2026**, fascia **gialla**, premi **Avvia**.
 4. Chrome si apre su Turismatica e compare **«Ora tocca a te»**: entra con
    SPID/CIE con calma (il programma non ha fretta), poi **«Sono dentro: vai»**.
-5. Alla fine il riepilogo deve dire, per la struttura, **«N già c'erano»** con N
-   uguale ai giorni del mese, e **nessun «da caricare»**.
-   - ✅ così: il riconoscimento funziona. Avanti.
-   - ❌ se compaiono giorni «da caricare» che sul portale sono già caricati:
-     **non passare alla modalità vera**. Manda registro e riepilogo.
+5. Guarda Chrome lavorare: per ogni giorno apre la finestrella di caricamento,
+   sceglie il file e la richiude **senza premere «Carica»**.
+6. Il riepilogo inizia con **«MODALITÀ PROVA — NON HO CARICATO NIENTE»** e
+   divide i 30 giorni in due:
+   - **«già c'erano»**: i giorni di settembre che sul portale sono già
+     caricati — controllane qualcuno sul portale: dev'essere davvero così;
+   - **«da caricare»**, con accanto il file (`… ← schedine_istat_PROVA_…`):
+     quelli che il portale mostra ancora vuoti.
+   - ❌ un giorno «da caricare» che sul portale è già caricato: **fermati** e
+     manda registro e riepilogo. È la cosa che protegge il portale nel giro
+     vero.
+7. Prova il blocco: **«Passa alla modalità VERA…»** → conferma → **Avvia**.
+   Deve comparire **«Questo è lo zip di prova: serve solo in modalità
+   prova»**, e Chrome non si deve aprire. Poi **«Torna alla modalità prova»**.
 
-### 2. Un giorno solo, in modalità VERA
+### 1-bis. Con i file veri, sempre in prova
+
+Quando hai lo zip ISTAT vero di un mese (dal tuo gestionale; con HostLab:
+Report → ISTAT — vanno bene sia i file di beb sia quelli che genera HostLab,
+`schedine_istat_<id>_<AAAAMMGG>.txt`): **«Scegli i file…»** → quello zip,
+scegli il mese, un giro in **prova**. Se il mese è già sul portale deve dire
+solo «N già c'erano».
+
+### 2. Un giorno solo, in modalità VERA (con i file veri)
 
 1. Scegli il **primo giorno non ancora caricato** di una struttura (il portale
    apre un giorno solo se il precedente c'è).

@@ -45,7 +45,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from uploader_turismatica.esito import Esito, EsitoStruttura
 from uploader_turismatica.periodo import Periodo
-from uploader_turismatica.sorgente import Sorgente
+from uploader_turismatica.sorgente import Sorgente, blocco_modalita_vera
 
 log = logging.getLogger(__name__)
 
@@ -246,6 +246,14 @@ def carica_struttura(
 
     esito = EsitoStruttura(etichetta=etichetta, id_turismatica=id_turismatica)
     esito.non_riconosciuti = list(sorgente.non_riconosciuti)
+
+    # Prima di toccare il portale: lo zip di prova non va mai in modalità vera.
+    # La finestra lo ferma già prima di aprire Chrome; questo è il muro sotto.
+    bloccata = blocco_modalita_vera(sorgente, prova=prova)
+    if bloccata is not None:
+        esito.saltata = bloccata
+        dillo(f"salto: {bloccata}")
+        return esito
 
     dillo(f"apro la pagina dei movimenti di {etichetta}")
     driver.get(MOVIMENTI_URL.format(id_turismatica))

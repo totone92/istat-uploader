@@ -43,6 +43,12 @@ _HOSTLAB = re.compile(r"^schedine_istat_.*_(\d{8})\.txt$", re.IGNORECASE)
 #: ``GGMMAAAA.txt`` — il nome dello script originale.
 _OTTO_CIFRE = re.compile(r"^(\d{8})\.txt$", re.IGNORECASE)
 
+#: Il marcatore dello zip di prova (``scripts/zip_di_prova.py``).
+MARCATORE_PROVA = "PROVA.txt"
+#: Il nome della struttura nei file inventati dello zip di prova.
+STRUTTURA_DI_PROVA = b"STRUTTURA DI PROVA"
+MESSAGGIO_ZIP_DI_PROVA = "Questo è lo zip di prova: serve solo in modalità prova."
+
 
 def data_dal_nome(nome: str) -> date | None:
     """La data che il nome del file dichiara, o ``None`` se non ne dichiara una.
@@ -89,6 +95,9 @@ class Sorgente:
 
     per_giorno: dict[date, Path] = field(default_factory=dict)
     non_riconosciuti: list[str] = field(default_factory=list)
+    #: ``True`` per lo zip di prova: file inventati, che **non** devono mai
+    #: arrivare al portale. Vedi :func:`blocco_modalita_vera`.
+    di_prova: bool = False
     #: Directory temporanea da cancellare a fine giro (solo se veniva da uno zip).
     _temp: Path | None = None
 
@@ -176,9 +185,35 @@ def _estrai_sicuro(zf: zipfile.ZipFile, dove: Path) -> None:
             shutil.copyfileobj(sorgente, out)
 
 
+def blocco_modalita_vera(sorgente: Sorgente, *, prova: bool) -> str | None:
+    """Il messaggio per cui questa sorgente non si può caricare davvero, o
+    ``None``. Oggi un caso solo: lo zip di prova in modalità vera."""
+    if sorgente.di_prova and not prova:
+        return MESSAGGIO_ZIP_DI_PROVA
+    return None
+
+
+def _e_di_prova(path: Path) -> bool:
+    """Lo zip di prova si riconosce in due modi, e ne basta uno: il marcatore
+    ``PROVA.txt``, oppure un file il cui nome di struttura è quello inventato.
+    Il secondo c'è perché il marcatore si può perdere (estratto a mano, file
+    cancellato) e i giorni inventati restano lì, con i loro nomi validi."""
+    if path.name.lower() == MARCATORE_PROVA.lower():
+        return True
+    try:
+        with path.open("rb") as f:
+            return f.read(len(STRUTTURA_DI_PROVA)) == STRUTTURA_DI_PROVA
+    except OSError:
+        return False
+
+
 def _indicizza(files: list[Path], *, temp: Path | None) -> Sorgente:
     s = Sorgente(_temp=temp)
     for path in files:
+        if _e_di_prova(path):
+            s.di_prova = True
+            if path.name.lower() == MARCATORE_PROVA.lower():
+                continue          # il marcatore non è un giorno, né un «non riconosciuto»
         giorno = data_dal_nome(path.name)
         if giorno is None:
             s.non_riconosciuti.append(path.name)

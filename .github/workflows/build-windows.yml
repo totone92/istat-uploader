@@ -3,7 +3,9 @@
 # - a ogni push su main, e a mano da Actions → «Build Windows» → Run workflow:
 #   l'.exe esce come ARTEFATTO scaricabile dalla pagina del giro (il file
 #   stesso, non uno zip);
-# - a ogni tag vX.Y.Z: in più lo allega a una RELEASE (link stabile, non scade).
+# - a ogni tag vX.Y.Z: in più lo allega a una RELEASE (link stabile, non scade),
+#   insieme allo zip di prova (scripts/zip_di_prova.py: settembre 2026
+#   inventato, bloccato in modalità vera).
 #
 # Nessun segreto: usa solo il token che GitHub dà a ogni giro (github.token),
 # con il permesso di scrivere i contenuti solo nel passo della release.
@@ -80,11 +82,22 @@ jobs:
           Get-Content "$env:APPDATA\UploaderTurismatica\controllo.txt"
           if ($p.ExitCode -ne 0) { throw "controllo: qualcosa con la ✗" }
 
-      # archive: false ⇒ l'artefatto È l'.exe (niente zip da aprire), e si
-      # chiama come il file: IstatUploader.exe.
+      # Lo zip di prova si costruisce qui, dal codice, e non si committa.
+      - name: Zip di prova (settembre 2026 inventato)
+        run: python scripts/zip_di_prova.py dist/prova-settembre-2026.zip
+
+      # archive: false ⇒ l'artefatto È il file (niente zip attorno), e si
+      # chiama come il file.
       - uses: actions/upload-artifact@v7
         with:
           path: dist/IstatUploader.exe
+          archive: false
+          if-no-files-found: error
+          retention-days: 90
+
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/prova-settembre-2026.zip
           archive: false
           if-no-files-found: error
           retention-days: 90
@@ -100,14 +113,20 @@ jobs:
         with:
           name: IstatUploader.exe
           path: dist
-      - name: Release con l'.exe
+      - uses: actions/download-artifact@v8
+        with:
+          name: prova-settembre-2026.zip
+          path: dist
+      - name: Release con l'.exe e lo zip di prova
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ls -la dist
+          ls -laR dist
           exe=$(find dist -type f -name IstatUploader.exe | head -n 1)
+          zip=$(find dist -type f -name prova-settembre-2026.zip | head -n 1)
           test -n "$exe" || { echo "IstatUploader.exe non scaricato"; exit 1; }
-          gh release create "${{ github.ref_name }}" "$exe" \
+          test -n "$zip" || { echo "prova-settembre-2026.zip non scaricato"; exit 1; }
+          gh release create "${{ github.ref_name }}" "$exe" "$zip" \
             --repo "${{ github.repository }}" \
             --title "Istat Uploader ${{ github.ref_name }}" \
-            --notes "Scarica IstatUploader.exe qui sotto. Prima volta: leggi BUILD_WINDOWS.md (si parte in MODALITÀ PROVA)."
+            --notes "IstatUploader.exe è il programma. prova-settembre-2026.zip contiene file INVENTATI per la prima prova: funziona solo in MODALITÀ PROVA. Istruzioni: BUILD_WINDOWS.md."

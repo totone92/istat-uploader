@@ -16,8 +16,9 @@ giornalieri: B&B, affittacamere, case vacanze, agriturismi, alberghi.
 ## Scaricalo
 
 1. Vai su **[Releases](https://github.com/totone92/istat-uploader/releases/latest)**.
-2. Sotto **Assets** clicca **`IstatUploader.exe`**.
-3. Mettilo sul Desktop o in una cartella tua, e aprilo con un doppio clic.
+2. Sotto **Assets** scarica **`IstatUploader.exe`** e, per la prima prova,
+   **`prova-settembre-2026.zip`**.
+3. Mettili sul Desktop o in una cartella tua, e apri l'.exe con un doppio clic.
 
 Non c'è niente da installare. Ti servono Windows 10 o 11 e **Google Chrome**.
 
@@ -39,6 +40,16 @@ In cima alla finestra c'è una fascia colorata.
 Perché tanta cautela? Sul portale, ricaricare un giorno **sostituisce** quello
 che c'era. Il programma salta i giorni già caricati, ma il primo giro vero è
 bene farlo dopo averne visto uno di prova sullo stesso mese.
+
+## La prima prova: con lo zip di prova
+
+Non ti serve nessun file vero. `prova-settembre-2026.zip` ha un file per ogni
+giorno di settembre 2026, con numeri **inventati** e la struttura «STRUTTURA DI
+PROVA». Sceglilo come file, scegli settembre 2026 e avvia **in prova**: vedrai
+il programma lavorare sul portale, giorno per giorno, senza caricare niente.
+Lo zip di prova **non si può usare in modalità vera**: il programma lo
+riconosce e si ferma con «Questo è lo zip di prova: serve solo in modalità
+prova». La scaletta completa è in [`BUILD_WINDOWS.md`](BUILD_WINDOWS.md).
 
 ## Come si usa
 

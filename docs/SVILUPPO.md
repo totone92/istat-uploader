@@ -55,7 +55,7 @@ Queste cose **non sono verificate** e vanno provate su un PC vero:
 
 **Cosa invece è provato**, e non a parole:
 
-- **79 test** su tutto ciò che non è il browser: i nomi dei file (beb,
+- **87 test** su tutto ciò che non è il browser: i nomi dei file (beb,
   generati da HostLab col CIN, script originale), lo zip, il periodo, il
   riepilogo, le regole del portale, le strutture salvate, **la modalità prova**
   (con un finto della *nostra* interfaccia `Passi`, non del portale) e il
@@ -306,7 +306,8 @@ plausibilità della data, che è un indovinello. C'è un test apposta.
 
 ```bash
 uv venv && uv pip install -r requirements-dev.txt
-.venv/bin/python -m pytest -q          # 79 test
+.venv/bin/python -m pytest -q          # 87 test
+.venv/bin/python scripts/zip_di_prova.py dist/prova-settembre-2026.zip
 .venv/bin/python -m ruff check .
 .venv/bin/python -m uploader_turismatica            # la finestra
 .venv/bin/python -m uploader_turismatica --controllo

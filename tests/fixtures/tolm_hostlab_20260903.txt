@@ -1,0 +1,13 @@
+STRUTTURA DI PROVA                                                                                                                                                                                                                                             
+
+Presenti notte precedente  1
+Arrivati.................  4
+Totale...................  5
+Partiti..................  0
+Presenti nella notte.....  5
+CAMERE OCCUPATE=3
+ARRIVATI E PARTITI DEL GIORNO 03-09-2026
+
+Provenienza                              |ARR. |PAR. |
+NA   |NAPOLI                             |    1|    0|
+TR   |TERNI                              |    3|    0|

@@ -61,7 +61,12 @@ from uploader_turismatica.portale import (
     carica_struttura,
     sembra_dentro,
 )
-from uploader_turismatica.sorgente import Sorgente, SorgenteNonValida, apri
+from uploader_turismatica.sorgente import (
+    Sorgente,
+    SorgenteNonValida,
+    apri,
+    blocco_modalita_vera,
+)
 from uploader_turismatica.strutture import Struttura, carica, salva
 
 log = logging.getLogger(__name__)
@@ -433,6 +438,16 @@ class App:
             return
 
         prova = self.prova
+        if not prova:
+            for s in scelte:
+                motivo = self._blocco(s)
+                if motivo is not None:
+                    messagebox.showerror(
+                        "Modalità vera bloccata",
+                        f"«{s.etichetta}»: {motivo}\n\n"
+                        "Torna alla modalità prova, oppure scegli i file veri.",
+                    )
+                    return
         if not prova and not messagebox.askyesno(
             "Carico davvero?",
             f"Carico DAVVERO {periodo.etichetta} per: "
@@ -459,6 +474,20 @@ class App:
             target=self._lavora, args=(periodo, scelte, prova), daemon=True,
         )
         self.lavoro.start()
+
+    @staticmethod
+    def _blocco(s: Struttura) -> str | None:
+        """Guarda i file di una struttura prima del giro vero. Una sorgente che
+        non si apre la lascia passare: lo dirà il giro, struttura per
+        struttura, come sempre."""
+        try:
+            sorgente = apri(Path(s.sorgente))
+        except SorgenteNonValida:
+            return None
+        try:
+            return blocco_modalita_vera(sorgente, prova=False)
+        finally:
+            sorgente.pulisci()
 
     def _lavora(self, periodo: Periodo, scelte: list[Struttura], prova: bool) -> None:
         """Gira sul thread di lavoro: **non tocca un solo widget**."""

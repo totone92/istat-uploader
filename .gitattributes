@@ -1,2 +1,4 @@
 # cmd.exe legge male i .bat con a capo Unix (etichette e goto)
 *.bat text eol=crlf
+# il giorno reso da HostLab: byte per byte, a capo CRLF compresi
+tests/fixtures/*.txt -text
