@@ -111,6 +111,19 @@ def test_senza_pulsante_il_giorno_non_e_riuscito_e_nessun_file_si_sceglie(
     assert passi.chiamate == ["riga", "apri_dialog"]
 
 
+def test_in_prova_i_giorni_in_coda_sono_da_caricare_e_non_si_toccano() -> None:
+    """Il portale apre il caricamento solo sul primo giorno non inserito: in
+    prova i giorni dopo non hanno il bottone, e non è un fallimento."""
+    passi = PassiFinti(bottone=False)
+    assert carica_giorno(passi, GIORNO, FILE, prova=True, in_coda=True) is Esito.DA_CARICARE
+    assert passi.chiamate == ["riga"]
+
+
+def test_in_coda_non_cambia_niente_in_modalita_vera() -> None:
+    passi = PassiFinti(bottone=False)
+    assert carica_giorno(passi, GIORNO, FILE, prova=False, in_coda=True) is Esito.NON_RIUSCITO
+
+
 def test_un_carica_fallito_in_modalita_vera_chiude_il_dialog() -> None:
     """Un dialog rimasto aperto fa fallire anche il giorno dopo."""
     passi = PassiFinti(conferma=False)

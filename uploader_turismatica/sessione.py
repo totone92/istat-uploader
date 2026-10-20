@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import time
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -41,6 +42,9 @@ from uploader_turismatica.sorgente import Sorgente
 
 log = logging.getLogger(__name__)
 
+#: Quanto aspettare la tendina delle strutture in ``prehome`` (secondi).
+ATTESA_ELENCO_S = 20.0
+
 
 @dataclass
 class LetturaStrutture:
@@ -66,34 +70,7 @@ class Portale(Protocol):
     def leggi_strutture(self) -> LetturaStrutture: ...
     def leggi_mesi(
         self, id_turismatica: str, mesi: Sequence[date], *, strutture_note: Collection[str],
-    ) -> LetturaMesi:
-        out = LetturaMesi()
-        problema = apri_movimenti(self.driver, id_turismatica, strutture_note=strutture_note)
-        out.struttura = pagina(self.driver).struttura
-        if problema is not None:
-            out.avviso = problema
-            log.warning("struttura %s: %s", id_turismatica, problema)
-            self._salva_copia(f"pagina-movimenti-{id_turismatica}", self._sorgente())
-            return out
-        for mese in mesi:
-            letto = leggi_mese(self.driver, mese)
-            if letto.righe:
-                stato = stato_dalle_righe(
-                    [(r.giorno, r.caricato, bool(r.id_carica)) for r in letto.righe],
-                    anno=mese.year, mese=mese.month, letto_il=self._ora(),
-                    chiuso=letto.chiuso, invio_possibile=letto.invio_possibile,
-                )
-                out.mesi[stato.chiave] = stato
-            elif letto.chiuso:
-                stato = StatoMese(mese.year, mese.month, letto_il=self._ora(), chiuso=True)
-                out.mesi[stato.chiave] = stato
-            if letto.problema is not None:
-                log.warning("struttura %s, %s: %s", id_turismatica, f"{mese:%m/%Y}", letto.problema)
-                if not letto.chiuso:
-                    out.avviso = letto.problema
-                    self._salva_copia(f"pagina-movimenti-{id_turismatica}", self._sorgente())
-        return out
-
+    ) -> LetturaMesi: ...
     def carica(
         self, *, id_turismatica: str, etichetta: str, sorgente: Sorgente,
         periodo: Periodo | None, prova: bool, strutture_note: Collection[str],
@@ -132,7 +109,7 @@ class SessioneSelenium:
         visitate = [PREHOME_URL]
         with contextlib.suppress(WebDriverException):
             self.driver.get(PREHOME_URL)
-        pagina = self._sorgente()
+        pagina = self._aspetta_elenco()
         trovate = riconoscimento.strutture(pagina)
         if not trovate:
             pagina = atterrata
@@ -164,24 +141,30 @@ class SessioneSelenium:
         self, id_turismatica: str, mesi: Sequence[date], *, strutture_note: Collection[str],
     ) -> LetturaMesi:
         out = LetturaMesi()
+        problema = apri_movimenti(self.driver, id_turismatica, strutture_note=strutture_note)
+        out.struttura = pagina(self.driver).struttura
+        if problema is not None:
+            out.avviso = problema
+            log.warning("struttura %s: %s", id_turismatica, problema)
+            self._salva_copia(f"pagina-movimenti-{id_turismatica}", self._sorgente())
+            return out
         for mese in mesi:
-            problema = apri_movimenti(
-                self.driver, id_turismatica, mese, strutture_note=strutture_note,
-            )
-            righe = leggi_mese(self.driver)
-            # Anche se il mese voluto non si è raggiunto, quello mostrato si
-            # legge lo stesso: è comunque un'informazione vera.
-            for giorno_mese in {(g.year, g.month) for g, _, _ in righe}:
+            letto = leggi_mese(self.driver, mese)
+            if letto.righe:
                 stato = stato_dalle_righe(
-                    righe, anno=giorno_mese[0], mese=giorno_mese[1], letto_il=self._ora(),
+                    [(r.giorno, r.caricato, bool(r.id_carica)) for r in letto.righe],
+                    anno=mese.year, mese=mese.month, letto_il=self._ora(),
+                    chiuso=letto.chiuso, invio_possibile=letto.invio_possibile,
                 )
                 out.mesi[stato.chiave] = stato
-            if problema is not None:
-                out.avviso = problema
-                log.warning("struttura %s, %s: %s", id_turismatica, f"{mese:%m/%Y}", problema)
-                if not righe:
+            elif letto.chiuso:
+                stato = StatoMese(mese.year, mese.month, letto_il=self._ora(), chiuso=True)
+                out.mesi[stato.chiave] = stato
+            if letto.problema is not None:
+                log.warning("struttura %s, %s: %s", id_turismatica, f"{mese:%m/%Y}", letto.problema)
+                if not letto.chiuso:
+                    out.avviso = letto.problema
                     self._salva_copia(f"pagina-movimenti-{id_turismatica}", self._sorgente())
-                    break
         return out
 
     def carica(
@@ -202,6 +185,19 @@ class SessioneSelenium:
             self._driver = None
 
     # ── interni ──────────────────────────────────────────────────────────────
+
+    def _aspetta_elenco(self) -> str:
+        """La pagina di ``prehome`` quando la tendina delle strutture c'è
+        davvero. Appena entrati il portale può essere ancora a metà (prima prova
+        del 20/10: elenco non letto al primo avvio, letto al secondo): si
+        rilegge ogni mezzo secondo per ``ATTESA_ELENCO_S`` e poi si prende
+        quello che c'è."""
+        fine = time.monotonic() + ATTESA_ELENCO_S
+        while True:
+            pagina = self._sorgente()
+            if riconoscimento.strutture(pagina) or time.monotonic() >= fine:
+                return pagina
+            time.sleep(0.5)
 
     def _sorgente(self) -> str:
         try:

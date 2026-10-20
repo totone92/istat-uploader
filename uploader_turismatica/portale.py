@@ -66,7 +66,7 @@ from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from uploader_turismatica import messaggi
+from uploader_turismatica import messaggi, riconoscimento
 from uploader_turismatica.esito import Esito, EsitoStruttura
 from uploader_turismatica.pagina_movimenti import (
     SCHEDA_APERTO,
@@ -120,6 +120,14 @@ MANCANTI_DI_FILA = 3
 #: Pausa fra un giorno e l'altro: il portale è un JSF che ricostruisce la
 #: tabella a ogni upload. Gentile di proposito.
 PAUSA_FRA_GIORNI_S = 0.5
+
+#: Quanto aspettare che una pagina del portale mostri ciò che serve (la
+#: tabella, il mese nuovo) e che una scheda dinamica arrivi. Secondi.
+ATTESA_PAGINA_S = 15.0
+ATTESA_SCHEDA_S = 10.0
+#: Quanto aspettare che il bottone «carica da FILE» compaia sulla riga del
+#: giorno, dopo il caricamento del giorno prima.
+ATTESA_BOTTONE_S = 5.0
 
 Avanzamento = Callable[[str], None]
 
@@ -208,7 +216,16 @@ def sembra_dentro(driver: WebDriver) -> bool:
         url = driver.current_url or ""
     except WebDriverException:
         return False
-    return "prehome" not in url and "/private/" in url
+    if "/private/" not in url:
+        return False
+    if "prehome" not in url:
+        return True
+    # In prehome si è dentro solo se la tendina delle strutture c'è: appena
+    # aperto, l'indirizzo è ancora prehome mentre il portale manda al login.
+    try:
+        return bool(riconoscimento.strutture(driver.page_source or ""))
+    except WebDriverException:
+        return False
 
 
 # ─── il caricamento di una struttura ─────────────────────────────────────────
@@ -320,8 +337,9 @@ def _carica_giorni(
         contatore.trovato()
 
         dillo(f"{giorno:%d/%m/%Y}")
+        in_coda = prova and Esito.DA_CARICARE in esito.giorni.values()
         try:
-            risultato = carica_giorno(passi, giorno, file, prova=prova)
+            risultato = carica_giorno(passi, giorno, file, prova=prova, in_coda=in_coda)
             errore = ""
         except Exception as exc:            # noqa: BLE001 — un giorno non ferma il mese
             risultato = Esito.NON_RIUSCITO
@@ -363,7 +381,9 @@ class Passi(Protocol):
         ...
 
 
-def carica_giorno(passi: Passi, giorno: date, file: Path, *, prova: bool) -> Esito:
+def carica_giorno(
+    passi: Passi, giorno: date, file: Path, *, prova: bool, in_coda: bool = False,
+) -> Esito:
     """Il giorno, dall'inizio alla fine. Ritorna l'esito di quel giorno.
 
     ⚠️ **In prova si fa tutto tranne ``conferma``**: dialog aperto, file
@@ -374,10 +394,17 @@ def carica_giorno(passi: Passi, giorno: date, file: Path, *, prova: bool) -> Esi
 
     Un giorno già caricato **non si tocca in nessuna delle due**: ricaricarlo
     lo sostituirebbe (manuale della Regione), anche una correzione fatta a mano
-    sul portale."""
+    sul portale.
+
+    ``in_coda`` (solo prova): un giorno prima, in questo giro, è rimasto «da
+    caricare». Il portale apre il caricamento **solo sul primo giorno non
+    inserito**, quindi in prova i giorni dopo non hanno il bottone — e non è un
+    fallimento: in modalità vera si apriranno uno dopo l'altro."""
     riga = passi.riga(giorno)
     if riga is not None and giorno_gia_caricato(*riga):
         return Esito.GIA_CARICATO
+    if prova and in_coda:
+        return Esito.DA_CARICARE
     if not passi.apri_dialog(giorno):
         # Non caricato e niente pulsante: il portale non apre ancora questo
         # giorno (di solito manca il precedente). È un adempimento che manca,
@@ -414,7 +441,14 @@ class _PassiSelenium:
         return r.grezza if r is not None else None
 
     def apri_dialog(self, giorno: date) -> bool:
-        r = pagina(self.driver).riga(giorno)
+        # Dopo il caricamento del giorno prima il portale ricostruisce la
+        # tabella, e il bottone passa a questa riga: gli si dà il tempo.
+        p = _aspetta_pagina(
+            self.driver,
+            lambda q: (r := q.riga(giorno)) is not None and bool(r.id_carica),
+            ATTESA_BOTTONE_S,
+        )
+        r = p.riga(giorno) if p is not None else None
         if r is None or not r.id_carica:
             return False
         # Il dialog si apre da JS: il click "normale" sul bottone non basta,
@@ -555,7 +589,7 @@ def _entra_da_prehome(driver: WebDriver, id_turismatica: str) -> bool:
     if "movimentoospiti" not in _url(driver):
         driver.get(MOVIMENTI_URL.format(id_turismatica))
     return _aspetta_pagina(
-        driver, lambda p: bool(p.righe) and _sulla_struttura(p, id_turismatica) is not False, 15,
+        driver, lambda p: bool(p.righe) and _sulla_struttura(p, id_turismatica) is not False, ATTESA_PAGINA_S,
     ) is not None
 
 
@@ -571,7 +605,7 @@ def apri_movimenti(
     gestore: tendina, «Accedi». Una pagina che non dice di chi è si accetta
     (``_sulla_struttura`` → ``None``): l'indirizzo l'abbiamo scritto noi."""
     driver.get(MOVIMENTI_URL.format(id_turismatica))
-    p = _aspetta_pagina(driver, lambda p: bool(p.righe) or p.struttura is not None, 15)
+    p = _aspetta_pagina(driver, lambda p: bool(p.righe) or p.struttura is not None, ATTESA_PAGINA_S)
     if p is not None and _sulla_struttura(p, id_turismatica) is False:
         log.warning(
             "l'indirizzo diretto ha aperto la struttura %s invece di %s: passo da prehome",
@@ -646,8 +680,12 @@ def vai_al_mese(driver: WebDriver, voluto: date) -> Raggiunto:
         if not bottone.attivo:
             return Raggiunto.CHIUSO if direzione == "indietro" else Raggiunto.NO
         prima = p.mese
+
+        def cambiato(q: PaginaMovimenti, m: date | None = prima) -> bool:
+            return q.mese not in (None, m)
+
         _premi(driver, bottone.id)
-        if _aspetta_pagina(driver, lambda q, m=prima: q.mese not in (None, m), 15) is None:
+        if _aspetta_pagina(driver, cambiato, ATTESA_PAGINA_S) is None:
             log.warning("il mese non è cambiato dopo «%s»", direzione)
             return Raggiunto.NO
     return Raggiunto.SI if verso(pagina(driver).mese, voluto) is None else Raggiunto.NO
@@ -672,7 +710,7 @@ def apri_scheda(driver: WebDriver, nome: str) -> PaginaMovimenti | None:
         except WebDriverException as exc:
             log.warning("scheda «%s» non aperta: %s", nome, _in_breve(exc))
             return None
-    return _aspetta_pagina(driver, lambda q: q.scheda == nome and bool(q.righe), 20)
+    return _aspetta_pagina(driver, lambda q: q.scheda == nome and bool(q.righe), ATTESA_SCHEDA_S)
 
 
 @dataclass
@@ -699,13 +737,13 @@ def leggi_mese(driver: WebDriver, voluto: date) -> MeseLetto:
             invio_possibile=p.invio_mensile.attivo if p.invio_mensile else None,
         )
     if raggiunto is Raggiunto.CHIUSO:
-        p = apri_scheda(driver, SCHEDA_CHIUSO)
-        if p is not None and verso(p.mese, voluto) is not None:
+        chiuso = apri_scheda(driver, SCHEDA_CHIUSO)
+        if chiuso is not None and verso(chiuso.mese, voluto) is not None:
             # Anche il periodo chiuso può avere le sue frecce: stessa regola.
             vai_al_mese(driver, voluto)
-            p = pagina(driver)
-        righe = [] if p is None else [
-            r for r in p.righe if (r.giorno.year, r.giorno.month) == (voluto.year, voluto.month)
+            chiuso = pagina(driver)
+        righe = [] if chiuso is None else [
+            r for r in chiuso.righe if (r.giorno.year, r.giorno.month) == (voluto.year, voluto.month)
         ]
         # Si torna sul periodo aperto: è lì che lavora il resto del giro.
         apri_scheda(driver, SCHEDA_APERTO)

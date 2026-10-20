@@ -76,13 +76,13 @@ class StatoMese:
         giorni_raw = dati.get("giorni") or {}
         assert isinstance(giorni_raw, dict)
         letto = dati.get("letto_il")
+        invio = dati.get("invio_possibile")
         return cls(
             anno, mese,
             {int(g): StatoGiorno(s) for g, s in giorni_raw.items()},
             datetime.fromisoformat(letto) if isinstance(letto, str) else None,
             chiuso=bool(dati.get("chiuso", False)),
-            invio_possibile=dati.get("invio_possibile") if isinstance(
-                dati.get("invio_possibile"), bool) else None,
+            invio_possibile=invio if isinstance(invio, bool) else None,
         )
 
     def comunicazione(self, oggi: date) -> str:

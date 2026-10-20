@@ -118,7 +118,7 @@ def _manca_webview2() -> int:
 def apri_cartella(cartella: Path) -> None:
     with contextlib.suppress(Exception):
         if sys.platform.startswith("win"):
-            os.startfile(cartella)  # type: ignore[attr-defined]
+            os.startfile(cartella)
         else:
             subprocess.Popen(["xdg-open", str(cartella)])
 

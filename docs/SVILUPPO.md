@@ -41,6 +41,43 @@ personale scritta `~`.
 
 ---
 
+## v1.3.1 — la prima lettura dei mesi sul portale vero (20/10/2026)
+
+Sul PC di Marco la v1.3.0 ha letto le 8 strutture e si è fermata subito dopo:
+`TypeError: apri_movimenti() takes 2 positional arguments but 3 … were given`
+in `sessione.leggi_mesi`.
+
+**Perché.** La nuova `leggi_mesi` era finita nel corpo del Protocol `Portale`
+(la sostituzione aveva agganciato la prima `def leggi_mesi(` del file) e
+`SessioneSelenium` era rimasta con quella vecchia. I test non potevano
+vederlo: il flusso usava un doppio di `Portale` con la firma giusta, e nessun
+test passava dal codice vero di `SessioneSelenium`. mypy sì: sul commit della
+v1.3.0 dà 17 errori, fra cui proprio questa chiamata.
+
+**Cosa cambia perché non si ripeta**
+- **mypy** (`[tool.mypy]` in `pyproject.toml`, `platform = "win32"`) è un passo
+  del giro di GitHub e di `build.bat`, prima della build.
+- **`tests/driver_finto.py`**: un driver Selenium finto che serve le pagine
+  vere del portale. `tests/test_sessione_vera.py` passa dal codice vero di
+  `SessioneSelenium` e `portale.py`: elenco, mesi, passaggio da `prehome`,
+  caricamento e comunicazione in prova, e il giro dell'app da «Collega» al
+  riepilogo.
+- Un test pretende che il doppio di `test_flusso` abbia le **stesse firme** di
+  `SessioneSelenium` e del Protocol.
+
+**Trovati ripassando il percorso**
+- In prova i giorni dopo il primo da caricare risultavano «NON caricati»: il
+  portale apre il caricamento solo sul primo giorno non inserito. Ora sono «da
+  caricare» (`carica_giorno(..., in_coda=)`). In modalità vera, dopo un
+  caricamento, si aspetta che il bottone passi alla riga dopo.
+- «Sei dentro» non scattava mai da solo, perché dopo l'accesso si atterra su
+  `prehome` e l'euristica lo escludeva. Ora in `prehome` vale se la tendina
+  delle strutture c'è.
+- La tendina di `prehome` si aspetta (fino a 20 s) prima di leggerla. Al primo
+  avvio di Marco l'elenco non si era letto, al secondo sì.
+
+---
+
 ## v1.3.0 — il portale vero (20/10/2026)
 
 La lettura delle strutture della v1.2.0 non ha funzionato alla prima prova di
@@ -116,7 +153,7 @@ Queste cose **non sono verificate** e vanno provate su un PC vero:
 
 **Cosa invece è provato**, e non a parole:
 
-- **196 test** su tutto ciò che non è il browser: i nomi dei file (beb,
+- **216 test** su tutto ciò che non è il browser: i nomi dei file (beb,
   generati da HostLab col CIN, script originale), lo zip, il periodo, il
   riepilogo, le regole del portale, le strutture salvate, **la modalità prova**
   (con un finto della *nostra* interfaccia `Passi`, non del portale) e il
@@ -377,7 +414,7 @@ plausibilità della data, che è un indovinello. C'è un test apposta.
 
 ```bash
 uv venv && uv pip install -r requirements-dev.txt
-.venv/bin/python -m pytest -q          # 196 test
+.venv/bin/python -m pytest -q          # 216 test
 .venv/bin/python scripts/zip_di_prova.py dist/prova-settembre-2026.zip
 .venv/bin/python -m ruff check .
 .venv/bin/python -m uploader_turismatica            # la finestra
