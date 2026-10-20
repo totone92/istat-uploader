@@ -36,6 +36,11 @@ def controlla(tag: str, versione: str) -> str | None:
 
 
 def main(argv: list[str]) -> int:
+    # Su Windows l'uscita è in cp1252: la «è» del messaggio arriverebbe come
+    # 0xe8 a chi legge in UTF-8 (il test, il log del giro). UTF-8 sempre.
+    for flusso in (sys.stdout, sys.stderr):
+        if hasattr(flusso, "reconfigure"):
+            flusso.reconfigure(encoding="utf-8")
     if len(argv) != 1:
         print("uso: python scripts/controlla_tag.py vX.Y.Z", file=sys.stderr)
         return 2
