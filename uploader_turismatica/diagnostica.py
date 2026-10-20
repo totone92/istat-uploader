@@ -52,16 +52,17 @@ def rapporto() -> str:
             f"   Le dovrai ridichiarare ogni volta. ({exc})"
         )
 
-    # 2. la finestra si apre?
-    try:
-        import tkinter
+    # 2. la finestra: WebView2 (solo Windows)
+    from uploader_turismatica.finestra import URL_WEBVIEW2, webview2_presente
 
-        radice = tkinter.Tk()
-        radice.withdraw()
-        righe.append(f"✓  La finestra si apre  (Tk {radice.tk.call('info', 'patchlevel')})")
-        radice.destroy()
-    except Exception as exc:  # noqa: BLE001
-        righe.append(f"✗  La finestra NON si apre: {exc}")
+    presente = webview2_presente()
+    if presente is True:
+        righe.append("✓  Il componente per la finestra c'è  (Microsoft Edge WebView2)")
+    elif presente is False:
+        righe.append(
+            "✗  Manca «Microsoft Edge WebView2», che serve alla finestra.\n"
+            f"   Installalo da {URL_WEBVIEW2} e riapri il programma."
+        )
 
     # 3. Chrome + il componente che lo guida
     righe.append("")
@@ -118,18 +119,25 @@ def autoverifica() -> list[str]:
     Selenium carica per nome a runtime (senza, l'app partiva e moriva al primo
     «Avvia» con ``No module named 'selenium.webdriver.chrome.webdriver'``),
     l'eseguibile di Selenium Manager (che non è un modulo Python e va copiato a
-    parte) e Tk. Ritorna i problemi: lista vuota = a posto."""
+    parte), pywebview col suo motore e i file dell'interfaccia. Ritorna i problemi: lista vuota = a posto."""
     problemi: list[str] = []
     import importlib
 
-    for modulo in (
-        "tkinter",
+    moduli = [
+        "webview",
+        "webview.dom",
         "selenium.webdriver.chrome.webdriver",
         "selenium.webdriver.chrome.service",
         "selenium.webdriver.support.expected_conditions",
-        "uploader_turismatica.app",
+        "uploader_turismatica.api",
+        "uploader_turismatica.finestra",
         "uploader_turismatica.portale",
-    ):
+        "uploader_turismatica.sessione",
+    ]
+    if sys.platform.startswith("win"):
+        # Il motore della finestra su Windows: pythonnet + WinForms + WebView2.
+        moduli += ["clr", "webview.platforms.winforms", "webview.platforms.edgechromium"]
+    for modulo in moduli:
         try:
             importlib.import_module(modulo)
         except Exception as exc:  # noqa: BLE001
@@ -142,6 +150,11 @@ def autoverifica() -> list[str]:
             problemi.append(f"Selenium Manager non è nel pacchetto ({binario.name})")
     except Exception as exc:  # noqa: BLE001
         problemi.append(f"Selenium Manager non è nel pacchetto: {exc}")
+    from uploader_turismatica.finestra import UI
+
+    for nome in ("index.html", "app.css", "app.js"):
+        if not (UI / nome).is_file():
+            problemi.append(f"l'interfaccia non è nel pacchetto: manca ui/{nome}")
     return problemi
 
 

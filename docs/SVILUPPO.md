@@ -41,6 +41,36 @@ personale scritta `~`.
 
 ---
 
+## v1.2.0 — strutture lette dal portale, interfaccia nuova (20/10/2026)
+
+Dopo la prima prova vera (struttura scritta a mano, «123» inventato, giro fermo
+su «la tabella dei movimenti non si è aperta») il flusso è cambiato: **le
+strutture non si scrivono, si leggono dal portale**, e Tkinter è sostituito da
+**pywebview** con un'interfaccia HTML/CSS locale (WebView2, nessuna CDN).
+
+| pezzo | dove | provato come |
+|---|---|---|
+| il flusso, schermata per schermata | `api.Api` (niente finestra, niente browser) | `tests/test_flusso.py`, da capo a fondo con un `Portale` finto |
+| la lettura delle strutture | `riconoscimento.strutture` — parte da **`idStruttura`**, l'unica cosa certa del portale | pagine **finte** nelle forme probabili (tabella PrimeFaces, select, schede) |
+| la copia della pagina senza dati personali | `riconoscimento.ripulisci` | CF, persone, email, telefoni, ViewState, jsessionid tolti; classi, id, numeri e nomi delle strutture restano |
+| lo stato dei giorni e il cambio di mese | `portale.leggi_mese`, `portale.vai_al_mese` | i due JavaScript eseguiti in Chromium su una pagina dei movimenti finta: righe classificate, «precedente/successivo» trovati, il «Carica» del dialog e un «Salva» con la stessa icona **scartati** |
+| abbinamento file → struttura | `abbinamento.abbina` | nome nel file uguale → da solo; diverso → si chiede (la più simile in cima); scelta ricordata; ⚠️ l'id nel nome del file **non** è il numero Turismatica e non abbina mai |
+| il piano | `piano.costruisci` | «Settembre 2026, Casa Lavanda: 28 giorni già presenti, 2 da caricare (12 e 19).» |
+| i messaggi | `messaggi.py` | «La struttura 123 non è fra quelle del tuo account Turismatica» al posto della tabella |
+| la finestra | `finestra.py` + `ui/` | screenshot in Chromium headless, chiaro e scuro, con gli stati veri di `Api`; sul runner Windows `--autoverifica-finestra` apre la finestra **vera** e aspetta che il JS parli col Python |
+
+⚠️ **Non visto mai, da sistemare con la prima copia vera**: la pagina con
+l'elenco delle strutture e il comando che cambia mese nella pagina dei
+movimenti. Se la lettura fallisce, l'app salva `pagina-strutture-*.html` /
+`pagina-movimenti-*.html` (ripulite) accanto al registro e lascia inserire i
+numeri a mano: con quel file si aggiungono i selettori e un test.
+
+⚠️ **WebView2 assente ⇒ pywebview ripiega in silenzio su MSHTML** (Internet
+Explorer). `finestra.py` lo controlla nel registro prima di aprire e rifiuta il
+motore sbagliato in `events.initialized`.
+
+---
+
 ## ⚠️ COSA NON HO POTUTO PROVARE DA QUI
 
 Sviluppato su Linux, senza Windows e senza un accesso SPID a Turismatica.
@@ -48,14 +78,14 @@ Queste cose **non sono verificate** e vanno provate su un PC vero:
 
 | cosa | perché no | come si scopre se è rotta |
 |---|---|---|
-| **il `.exe` per Windows** | PyInstaller **non compila per un altro sistema**: impacchetta l'interprete della macchina su cui gira. Da Linux esce un binario Linux. | ✅ ora lo costruisce GitHub su `windows-latest`, e l'.exe fa `--autoverifica` di sé (moduli Selenium, Selenium Manager, Tk) e `--controllo` (apre Chrome). Resta da provare **su un PC vero** |
+| **il `.exe` per Windows** | PyInstaller **non compila per un altro sistema**: impacchetta l'interprete della macchina su cui gira. Da Linux esce un binario Linux. | ✅ ora lo costruisce GitHub su `windows-latest`, e l'.exe fa `--autoverifica` di sé (moduli Selenium, Selenium Manager, pywebview, interfaccia) e `--controllo` (apre Chrome). Resta da provare **su un PC vero** |
 | **la finestra** | nessun display grafico in questo ambiente (niente X, e `xvfb` richiede i permessi di amministratore) | si vede al primo avvio |
 | **il caricamento vero sul portale** | serve un accesso SPID a Turismatica, che è di una persona | primo giro vero, su **un mese solo** |
 | **SmartScreen** | è una reputazione di Microsoft su un file firmato, non una proprietà del codice | primo download su un PC altrui |
 
 **Cosa invece è provato**, e non a parole:
 
-- **87 test** su tutto ciò che non è il browser: i nomi dei file (beb,
+- **171 test** su tutto ciò che non è il browser: i nomi dei file (beb,
   generati da HostLab col CIN, script originale), lo zip, il periodo, il
   riepilogo, le regole del portale, le strutture salvate, **la modalità prova**
   (con un finto della *nostra* interfaccia `Passi`, non del portale) e il
@@ -148,7 +178,7 @@ risolti **per Windows**: il comando è in testa a `requirements.in`).
 
 **Misurato**: il binario equivalente su Linux è **32 MB**. Su Windows attendersi
 lo stesso ordine di grandezza (25–40 MB): dentro ci sono l'interprete Python,
-Tk per la finestra e Selenium. ⚠️ **Non è un numero verificato su Windows** —
+pywebview per la finestra e Selenium. ⚠️ **Non è un numero verificato su Windows** —
 lo dice il riepilogo della build su GitHub.
 
 Cosa NON c'è dentro, ed è voluto: `webdriver_manager` (superfluo), e `numpy`,
@@ -218,9 +248,18 @@ i selettori sono quelli.
 
 ```
 uploader_turismatica/
+├── api.py           il flusso, una schermata per volta — provato col portale finto
+├── finestra.py      pywebview: WebView2, trascinamento, scelta del file
+├── ui/              l'interfaccia: index.html, app.css, app.js (locali)
+├── sessione.py      il Portale (interfaccia) e la sua versione Selenium
+├── riconoscimento.py le strutture dalla pagina + la copia ripulita — PURO
+├── abbinamento.py   file → struttura, senza indovinare — PURO
+├── piano.py         stato dei giorni e piano — PURO
+├── messaggi.py      cosa dire al gestore — PURO
+├── configurazione.py cosa si ricorda (dopo l'OK) — provato
 ├── periodo.py       il periodo — PURO, provato
 ├── sorgente.py      zip/cartella → file per giorno — PURO, provato
-├── strutture.py     le strutture salvate — provato
+├── strutture.py     la cartella delle impostazioni (v1: elenco a mano, non più usato)
 ├── esito.py         il riepilogo per l'albergatore — PURO, provato
 ├── portale.py       la meccanica Turismatica — le DECISIONI sono pure e provate
 │                    (anche la sequenza di un giorno, `carica_giorno`, e la
@@ -229,7 +268,7 @@ uploader_turismatica/
 ├── chrome.py        avvio del browser
 ├── diagnostica.py   il controllo del computer (--controllo) e l'autoverifica
 │                    dell'.exe per la build (--autoverifica <file>)
-└── app.py           la finestra (fascia PROVA/VERA in cima)
+└── __main__.py      l'ingresso: finestra, --controllo, --autoverifica[-finestra]
 ```
 
 Le **decisioni** stanno fuori da Selenium e dai widget apposta: è ciò che si può
@@ -306,7 +345,7 @@ plausibilità della data, che è un indovinello. C'è un test apposta.
 
 ```bash
 uv venv && uv pip install -r requirements-dev.txt
-.venv/bin/python -m pytest -q          # 87 test
+.venv/bin/python -m pytest -q          # 171 test
 .venv/bin/python scripts/zip_di_prova.py dist/prova-settembre-2026.zip
 .venv/bin/python -m ruff check .
 .venv/bin/python -m uploader_turismatica            # la finestra

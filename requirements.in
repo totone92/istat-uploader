@@ -7,3 +7,6 @@
 # ChromeDriver giusto): niente driver da gestire a mano. Fissata alla versione
 # con cui girano i test.
 selenium==4.49.0
+# La finestra: HTML/CSS locali dentro WebView2 (il motore di Edge, già su
+# Windows 10 e 11). Su Windows porta con sé pythonnet.
+pywebview==6.2.1

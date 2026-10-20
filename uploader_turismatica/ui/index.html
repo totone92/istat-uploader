@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Istat Uploader</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="testata">
+    <div class="marchio">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="2" y="2" width="28" height="28" rx="8" class="logo-fondo"/>
+        <path d="M10 21V11M16 21v-6M22 21v-9" class="logo-barre"/>
+      </svg>
+      <div>
+        <div class="nome-app">Istat Uploader</div>
+        <div class="sottotitolo">Movimenti ISTAT su Turismatica · Umbria</div>
+      </div>
+    </div>
+    <div class="azioni-testata">
+      <span id="pillola" class="pillola" hidden></span>
+      <button id="apri-dettagli" class="bottone fantasma piccolo" type="button">Dettagli</button>
+    </div>
+  </header>
+
+  <div id="fascia" class="fascia" hidden></div>
+
+  <main id="app" class="contenuto" aria-live="polite">
+    <div class="caricamento"><span class="rotella"></span></div>
+  </main>
+
+  <footer class="piede">
+    <span>creato da <strong>Fortitudo</strong> con l'AI</span>
+    <span id="versione"></span>
+  </footer>
+
+  <div id="velo" class="velo" hidden></div>
+  <aside id="dettagli" class="cassetto" hidden aria-label="Dettagli">
+    <div class="cassetto-testa">
+      <h2>Dettagli</h2>
+      <button id="chiudi-dettagli" class="bottone fantasma piccolo" type="button">Chiudi</button>
+    </div>
+    <div id="dettagli-corpo" class="cassetto-corpo"></div>
+  </aside>
+  <div id="modale" class="modale" hidden role="dialog" aria-modal="true"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

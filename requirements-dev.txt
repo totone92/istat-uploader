@@ -6,10 +6,16 @@ attrs==26.1.0
     # via
     #   outcome
     #   trio
+bottle==0.13.4
+    # via pywebview
 certifi==2026.10.19
     # via selenium
 cffi==2.1.1
-    # via trio
+    # via
+    #   clr-loader
+    #   trio
+clr-loader==0.3.1
+    # via pythonnet
 colorama==0.4.6
     # via pytest
 h11==0.16.0
@@ -31,6 +37,8 @@ pefile==2024.8.26
     # via pyinstaller
 pluggy==1.7.0
     # via pytest
+proxy-tools==0.1.0
+    # via pywebview
 pycparser==3.11
     # via cffi
 pygments==2.21.0
@@ -43,6 +51,10 @@ pysocks==1.7.1
     # via urllib3
 pytest==9.1.1
     # via -r requirements-dev.in
+pythonnet==3.2.1
+    # via pywebview
+pywebview==6.2.1
+    # via -r requirements.in
 pywin32-ctypes==0.2.3
     # via pyinstaller
 ruff==0.16.7
@@ -62,7 +74,9 @@ trio==0.34.0
 trio-websocket==0.12.2
     # via selenium
 typing-extensions==4.16.0
-    # via selenium
+    # via
+    #   pywebview
+    #   selenium
 urllib3==2.8.0
     # via selenium
 websocket-client==1.9.2

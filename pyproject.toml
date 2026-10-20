@@ -1,6 +1,6 @@
 [project]
 name = "uploader-turismatica"
-version = "1.1.1"
+version = "1.2.0"
 description = "Carica i movimenti ISTAT giornalieri su Turismatica (Regione Umbria)"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -9,6 +9,8 @@ dependencies = [
     # il ChromeDriver giusto e lo tiene in cache. È la ragione per cui qui NON
     # c'è webdriver-manager — vedi uploader_turismatica/chrome.py.
     "selenium>=4.20",
+    # La finestra: HTML/CSS locali in WebView2 (vedi uploader_turismatica/finestra.py).
+    "pywebview>=6.2",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +36,10 @@ extend-exclude = ["Uploader2.py", "docs"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "DTZ"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# «Letto il 20/10 09:30» è l'ora del PC, senza fuso: nei test come nell'app.
+"tests/*" = ["DTZ001"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

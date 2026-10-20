@@ -145,11 +145,33 @@ def apri(percorso: Path) -> Sorgente:
     nome dell'archivio, e pretendere che siano in cima farebbe fallire il caso
     più comune.
     """
+    a = apri_archivio(percorso)
+    return _indicizza(a.file, temp=a._temp)
+
+
+@dataclass
+class Archivio:
+    """Tutti i .txt di uno zip o di una cartella, **non ancora divisi per
+    struttura**: uno zip può portare i file di più strutture con gli stessi
+    giorni, e indicizzarli per giorno ne butterebbe via metà. La divisione la
+    fa ``abbinamento.raggruppa``."""
+
+    file: list[Path]
+    _temp: Path | None = None
+
+    def pulisci(self) -> None:
+        if self._temp is not None:
+            shutil.rmtree(self._temp, ignore_errors=True)
+            self._temp = None
+
+
+def apri_archivio(percorso: Path) -> Archivio:
+    """Come :func:`apri`, senza indicizzare: i .txt e basta."""
     percorso = Path(percorso).expanduser()
     if not percorso.exists():
         raise SorgenteNonValida(f"Non trovo «{percorso.name}».")
     if percorso.is_dir():
-        return _indicizza(sorted(percorso.rglob("*.txt")), temp=None)
+        return Archivio(sorted(percorso.rglob("*.txt")))
     if percorso.suffix.lower() != ".zip":
         raise SorgenteNonValida(
             f"«{percorso.name}» non è né uno .zip né una cartella."
@@ -162,7 +184,15 @@ def apri(percorso: Path) -> Sorgente:
         raise SorgenteNonValida(
             f"«{percorso.name}» non si apre: il file è danneggiato o non è uno zip."
         ) from exc
-    return _indicizza(sorted(temp.rglob("*.txt")), temp=temp)
+    return Archivio(sorted(temp.rglob("*.txt")), temp)
+
+
+def sorgente_da(file: list[Path], *, di_prova: bool) -> Sorgente:
+    """La sorgente di **una** struttura, da un gruppo di file già scelto. La
+    cartella temporanea resta dell'``Archivio``: pulirla è compito suo."""
+    s = _indicizza(file, temp=None)
+    s.di_prova = s.di_prova or di_prova
+    return s
 
 
 def _estrai_sicuro(zf: zipfile.ZipFile, dove: Path) -> None:

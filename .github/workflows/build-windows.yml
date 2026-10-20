@@ -68,6 +68,31 @@ jobs:
           $mb = [math]::Round((Get-Item dist\IstatUploader.exe).Length / 1MB, 1)
           "IstatUploader.exe: $mb MB" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
 
+      # La finestra VERA: l'.exe apre WebView2 con l'interfaccia, aspetta che il
+      # JavaScript abbia parlato col Python (window.__ui_pronto) e si chiude.
+      # Prima ci si assicura che WebView2 ci sia, così un fallimento qui vuol
+      # dire «la finestra è rotta», non «manca un componente alla macchina».
+      - name: WebView2 sulla macchina di build
+        shell: pwsh
+        run: |
+          $c = python -c "from uploader_turismatica.finestra import webview2_presente as w; print(w())"
+          "WebView2 presente: $c"
+          if ($c -ne "True") {
+            Invoke-WebRequest "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile wv2.exe
+            $i = Start-Process .\wv2.exe -ArgumentList '/silent', '/install' -Wait -PassThru
+            "installazione WebView2: $($i.ExitCode)"
+          }
+
+      - name: Autoverifica della finestra
+        timeout-minutes: 4
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\IstatUploader.exe `
+                -ArgumentList '--autoverifica-finestra', 'dist\finestra.txt' -Wait -PassThru
+          Get-Content dist\finestra.txt
+          Get-Content dist\finestra.txt | Add-Content $env:GITHUB_STEP_SUMMARY
+          if ($p.ExitCode -ne 0) { throw "la finestra non funziona ($($p.ExitCode))" }
+
       # Il controllo del computer, come lo farà chi lo usa: apre e chiude Chrome
       # davvero (Chrome c'è sulle macchine di GitHub) e prova Selenium Manager.
       # Informativo: una macchina di GitHub non è il PC di un albergatore, e
@@ -112,21 +137,33 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: IstatUploader.exe
-          path: dist
+          path: scaricati/exe
+      # ⚠️ skip-decompress: un artefatto che È uno zip (Content-Type
+      # application/zip) download-artifact v8 lo SCOMPATTA da solo — era il
+      # motivo per cui la Release di v1.1.1 non trovava prova-settembre-2026.zip
+      # (nella cartella c'erano i .txt). Il nome del file scaricato viene dal
+      # Content-Disposition (ripiego «artifact»): si prende quello che c'è.
       - uses: actions/download-artifact@v8
         with:
           name: prova-settembre-2026.zip
-          path: dist
+          path: scaricati/prova
+          skip-decompress: true
       - name: Release con l'.exe e lo zip di prova
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ls -laR dist
-          exe=$(find dist -type f -name IstatUploader.exe | head -n 1)
-          zip=$(find dist -type f -name prova-settembre-2026.zip | head -n 1)
+          ls -laR scaricati
+          mkdir -p release
+          exe=$(find scaricati/exe -type f -name '*.exe' | head -n 1)
+          zip=$(find scaricati/prova -type f | head -n 1)
           test -n "$exe" || { echo "IstatUploader.exe non scaricato"; exit 1; }
-          test -n "$zip" || { echo "prova-settembre-2026.zip non scaricato"; exit 1; }
-          gh release create "${{ github.ref_name }}" "$exe" "$zip" \
+          test -n "$zip" || { echo "zip di prova non scaricato"; exit 1; }
+          cp "$exe" release/IstatUploader.exe
+          cp "$zip" release/prova-settembre-2026.zip
+          # dev'essere ancora uno zip, col marcatore dentro
+          unzip -l release/prova-settembre-2026.zip | grep -q 'PROVA.txt' \
+            || { echo "lo zip di prova non contiene PROVA.txt"; exit 1; }
+          gh release create "${{ github.ref_name }}" release/IstatUploader.exe release/prova-settembre-2026.zip \
             --repo "${{ github.repository }}" \
             --title "Istat Uploader ${{ github.ref_name }}" \
             --notes "IstatUploader.exe è il programma. prova-settembre-2026.zip contiene file INVENTATI per la prima prova: funziona solo in MODALITÀ PROVA. Istruzioni: BUILD_WINDOWS.md."

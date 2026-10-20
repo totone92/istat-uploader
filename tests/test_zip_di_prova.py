@@ -101,7 +101,7 @@ def test_il_portale_non_viene_nemmeno_aperto(zip_prova: Path) -> None:
         esito = carica_struttura(
             None,  # type: ignore[arg-type]
             id_turismatica="12345", etichetta="Prova", sorgente=s,
-            periodo=SETTEMBRE, prova=False,
+            periodo=SETTEMBRE, prova=False, strutture_note=frozenset(),
         )
     finally:
         s.pulisci()

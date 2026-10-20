@@ -127,7 +127,7 @@ def test_prova_non_ha_default(funzione: object) -> None:
 
 
 def test_l_app_si_sveglia_in_prova() -> None:
-    from uploader_turismatica.app import PROVA_ALL_AVVIO
+    from uploader_turismatica.api import PROVA_ALL_AVVIO
 
     assert PROVA_ALL_AVVIO is True
 

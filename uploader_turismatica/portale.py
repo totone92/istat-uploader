@@ -25,8 +25,9 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import date, datetime
 from pathlib import Path
 from typing import Protocol
@@ -43,8 +44,9 @@ from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from uploader_turismatica import messaggi
 from uploader_turismatica.esito import Esito, EsitoStruttura
-from uploader_turismatica.periodo import Periodo
+from uploader_turismatica.periodo import MESI, Periodo
 from uploader_turismatica.sorgente import Sorgente, blocco_modalita_vera
 
 log = logging.getLogger(__name__)
@@ -231,6 +233,7 @@ def carica_struttura(
     sorgente: Sorgente,
     periodo: Periodo,
     prova: bool,
+    strutture_note: Collection[str],
     avanzamento: Avanzamento | None = None,
 ) -> EsitoStruttura:
     """Carica i giorni del periodo per **una** struttura — o, con ``prova``,
@@ -256,44 +259,27 @@ def carica_struttura(
         return esito
 
     dillo(f"apro la pagina dei movimenti di {etichetta}")
-    driver.get(MOVIMENTI_URL.format(id_turismatica))
+    problema = apri_movimenti(
+        driver, id_turismatica, periodo.dal, strutture_note=strutture_note,
+    )
+    if problema is not None:
+        esito.saltata = problema
+        dillo(f"salto: {problema}")
+        return esito
+
     attesa = WebDriverWait(driver, 30)
-
-    stato = _stato_struttura(driver)
-    if not stato_utilizzabile(stato):
-        esito.saltata = (
-            f"sul portale risulta «{stato}», la pagina dei movimenti non esiste"
-        )
-        dillo(f"salto: {esito.saltata}")
-        return esito
-
-    try:
-        WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.ID, _TABELLA))
-        )
-    except TimeoutException:
-        esito.saltata = (
-            "la tabella dei movimenti non si è aperta"
-            + (f" (stato «{stato}»)" if stato else "")
-        )
-        dillo(f"salto: {esito.saltata}")
-        return esito
-
-    prima = _prima_data_in_tabella(driver)
-    if not tabella_sul_mese_giusto(prima, periodo.dal):
-        assert prima is not None
-        esito.saltata = (
-            f"il portale mostra {prima:%m/%Y}, non {periodo.dal:%m/%Y} — "
-            "apri tu il mese giusto e rilancia"
-        )
-        dillo(f"salto: {esito.saltata}")
-        return esito
-
     passi = _PassiSelenium(driver, attesa)
     contatore = ContatoreMancanti()
     for giorno in periodo.giorni:
         file = sorgente.file_del(giorno)
         if file is None:
+            # Senza file, ma forse il portale ce l'ha già: allora non manca
+            # niente, e non deve contare fra i «mancanti di fila».
+            riga = passi.riga(giorno)
+            if riga is not None and giorno_gia_caricato(*riga):
+                esito.segna(giorno, Esito.GIA_CARICATO)
+                registra_giorno(id_turismatica, giorno, Esito.GIA_CARICATO, "", "")
+                continue
             esito.segna(giorno, Esito.FILE_MANCANTE)
             registra_giorno(id_turismatica, giorno, Esito.FILE_MANCANTE, "", "")
             if contatore.manca():
@@ -469,6 +455,157 @@ class _PassiSelenium:
             WebDriverWait(self.driver, 10).until(
                 EC.invisibility_of_element_located(_DIALOG)
             )
+
+
+def apri_movimenti(
+    driver: WebDriver, id_turismatica: str, mese: date, *,
+    strutture_note: Collection[str],
+) -> str | None:
+    """Apre la pagina dei movimenti della struttura **sul mese voluto**.
+    ``None`` se è pronta; altrimenti il messaggio per il gestore (cosa è
+    successo e cosa fare). Sola lettura: apre, legge, al più cambia mese."""
+    driver.get(MOVIMENTI_URL.format(id_turismatica))
+    stato = _stato_struttura(driver)
+    if not stato_utilizzabile(stato):
+        assert stato is not None
+        return messaggi.struttura_non_attiva(id_turismatica, stato)
+    try:
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.ID, _TABELLA))
+        )
+    except TimeoutException:
+        return messaggi.perche_movimenti_non_aperti(
+            id_turismatica,
+            url=_url(driver), testo_pagina=_testo_visibile(driver),
+            strutture_note=strutture_note,
+        )
+    if not vai_al_mese(driver, mese):
+        prima = _prima_data_in_tabella(driver)
+        mostrato = f"{MESI[prima.month - 1]} {prima.year}" if prima else "un altro mese"
+        return messaggi.mese_non_raggiunto(mostrato, f"{MESI[mese.month - 1]} {mese.year}")
+    return None
+
+
+def _url(driver: WebDriver) -> str:
+    try:
+        return driver.current_url or ""
+    except WebDriverException:
+        return ""
+
+
+def _testo_visibile(driver: WebDriver) -> str:
+    try:
+        return str(driver.execute_script("return document.body ? document.body.innerText : ''"))
+    except WebDriverException:
+        return ""
+
+
+#: Comandi che **cambiano mese** nella pagina dei movimenti: frecce del
+#: calendario o del paginatore, «precedente»/«successivo». ⚠️ Mai un comando
+#: che scriva: chi parla di caricare, salvare, inviare, confermare, eliminare
+#: o modificare è escluso, e il dialog di caricamento è fuori dalla ricerca.
+_JS_COMANDO_MESE = r"""
+const verso = arguments[0];   // 'indietro' | 'avanti'
+const segni = verso === 'indietro'
+  ? /precedent|indietro|prev|seek-prev|angle-left|chevron-left|arrow-left|triangle-1-w|circle-triangle-w/i
+  : /successiv|avanti|next|seek-next|angle-right|chevron-right|arrow-right|triangle-1-e|circle-triangle-e/i;
+const vietati = /carica|upload|salva|save|invia|submit|conferm|elimin|cancell|delete|modific|nuov/i;
+const dialog = document.getElementById('movimentiTabView:uploadFileDialog');
+for (const el of document.querySelectorAll('a, button, [role="button"], span.ui-paginator-prev, span.ui-paginator-next')) {
+  if (dialog && dialog.contains(el)) continue;
+  const tabella = document.getElementById('movimentiTabView:tblMovimenti_data');
+  if (tabella && tabella.contains(el)) continue;
+  if (el.getAttribute('aria-disabled') === 'true' || el.classList.contains('ui-state-disabled') || el.disabled) continue;
+  const icone = [...el.querySelectorAll('[class]')].map(e => e.getAttribute('class')).join(' ');
+  const descr = [el.innerText, el.getAttribute('title'), el.getAttribute('aria-label'),
+                 el.getAttribute('class'), icone].join(' ');
+  if (vietati.test(descr)) continue;
+  if (segni.test(descr)) return el;
+}
+return null;
+"""
+MAX_PASSI_MESE = 13
+
+
+def vai_al_mese(driver: WebDriver, voluto: date) -> bool:
+    """Porta la tabella sul mese voluto. ``True`` se ci è (o ci era già).
+
+    Il portale ricorda l'ultimo mese guardato. Qui si cerca il comando che
+    cambia mese (vedi ``_JS_COMANDO_MESE``), si preme, si aspetta che la prima
+    data della tabella cambi, e si ripete al massimo ``MAX_PASSI_MESE`` volte.
+    Se il comando non c'è o la data non si muove: ``False``, e il messaggio lo
+    dice al gestore (che può aprire il mese a mano)."""
+    for _ in range(MAX_PASSI_MESE):
+        prima = _prima_data_in_tabella(driver)
+        if prima is None or tabella_sul_mese_giusto(prima, voluto):
+            return True
+        verso = "indietro" if (voluto.year, voluto.month) < (prima.year, prima.month) else "avanti"
+        try:
+            comando = driver.execute_script(_JS_COMANDO_MESE, verso)
+        except WebDriverException:
+            return False
+        if comando is None:
+            log.warning("comando per cambiare mese non trovato (verso %s)", verso)
+            return False
+        driver.execute_script("arguments[0].click();", comando)
+        try:
+            WebDriverWait(driver, 15).until(
+                lambda d, p=prima: _prima_data_in_tabella(d) not in (None, p)
+            )
+        except TimeoutException:
+            log.warning("il mese non è cambiato dopo il comando (verso %s)", verso)
+            return False
+    return tabella_sul_mese_giusto(_prima_data_in_tabella(driver), voluto)
+
+
+#: Tutte le righe del mese mostrato: data, celle, classi, titoli, pulsante.
+_JS_RIGHE = r"""
+const out = [];
+const corpo = document.getElementById('movimentiTabView:tblMovimenti_data');
+for (const tr of (corpo ? corpo.querySelectorAll('tr') : [])) {
+  const td = tr.querySelectorAll('td');
+  if (td.length < 2) continue;
+  out.push({
+    celle: [...td].map(c => (c.innerText || '').trim()),
+    classi: [...tr.querySelectorAll('[class*="fa-"]')].map(e => e.getAttribute('class') || ''),
+    titoli: [...tr.querySelectorAll('[title]')].map(e => e.getAttribute('title') || ''),
+    pulsante: !!tr.querySelector('button .fa-upload, button[class*="upload"]'),
+  });
+}
+return out;
+"""
+
+
+def righe_lette(dati: object) -> list[tuple[date, bool, bool]]:
+    """Dalle righe grezze del portale: ``(giorno, già caricato, ha il
+    pulsante)``. Pura: la stessa regola di ``giorno_gia_caricato``."""
+    out: list[tuple[date, bool, bool]] = []
+    if not isinstance(dati, list):
+        return out
+    for r in dati:
+        if not isinstance(r, dict):
+            continue
+        celle = [str(x) for x in r.get("celle") or []]
+        if len(celle) < 2:
+            continue
+        m = re.search(r"(\d{2}/\d{2}/\d{4})", celle[1])
+        if m is None:
+            continue
+        try:
+            giorno = datetime.strptime(m.group(1), "%d/%m/%Y").date()  # noqa: DTZ007
+        except ValueError:
+            continue
+        classi = [str(x) for x in r.get("classi") or []]
+        titoli = [str(x) for x in r.get("titoli") or []]
+        out.append((giorno, giorno_gia_caricato(celle, classi, titoli), bool(r.get("pulsante"))))
+    return out
+
+
+def leggi_mese(driver: WebDriver) -> list[tuple[date, bool, bool]]:
+    try:
+        return righe_lette(driver.execute_script(_JS_RIGHE))
+    except WebDriverException:
+        return []
 
 
 def _chiudi_dialog(driver: WebDriver) -> None:

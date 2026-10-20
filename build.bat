@@ -43,6 +43,10 @@ rem Selenium Manager, la finestra). Non apre niente.
 start "" /wait dist\IstatUploader.exe --autoverifica dist\autoverifica.txt
 type dist\autoverifica.txt
 findstr /c:"tutto dentro" dist\autoverifica.txt >nul || goto :errore
+rem E la finestra vera: si apre un attimo e si chiude da sola.
+start "" /wait dist\IstatUploader.exe --autoverifica-finestra dist\finestra.txt
+type dist\finestra.txt
+findstr /c:"interfaccia pronta" dist\finestra.txt >nul || goto :errore
 
 echo.
 echo FATTO: dist\IstatUploader.exe

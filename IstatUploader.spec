@@ -33,8 +33,13 @@ a = Analysis(
     binaries=[],
     # ⚠️ Selenium porta dentro l'**eseguibile di Selenium Manager**, che non è
     # un modulo Python: senza questi file il .exe parte e poi non trova il
-    # driver di Chrome.
-    datas=collect_data_files("selenium"),
+    # driver di Chrome. pywebview porta le DLL di WebView2 e i suoi JavaScript.
+    # ``ui/`` è l'interfaccia (HTML, CSS, JS): senza, la finestra è bianca.
+    datas=(
+        collect_data_files("selenium")
+        + collect_data_files("webview")
+        + [(str(Path(SPECPATH) / "uploader_turismatica" / "ui"), "uploader_turismatica/ui")]  # noqa: F821
+    ),
     # ⚠️ **`collect_submodules` e non una lista scritta a mano**, ed è una cosa
     # misurata, non prudenza: con l'elenco a mano il pacchetto si costruiva
     # benissimo e poi moriva con
@@ -42,8 +47,19 @@ a = Analysis(
     # — cioè partiva, mostrava la finestra, e falliva **nel momento peggiore**,
     # quando l'utente preme Avvia. Selenium risolve i suoi moduli per nome a
     # runtime, quindi PyInstaller non li vede seguendo gli import.
+    #
+    # Lo stesso vale per pywebview: sceglie la piattaforma (WinForms + Edge
+    # Chromium su Windows) per nome a runtime. Le piattaforme degli altri
+    # sistemi restano fuori: su Windows non si importano nemmeno.
     hiddenimports=(
         collect_submodules("selenium")
+        + collect_submodules(
+            "webview",
+            filter=lambda n: not any(
+                x in n for x in ("cocoa", "gtk", "qt", "android", "cef", "mshtml")
+            ),
+        )
+        + ["clr", "clr_loader", "bottle", "proxy_tools"]
         + collect_submodules("uploader_turismatica")
     ),
     hookspath=[],
@@ -51,7 +67,7 @@ a = Analysis(
     # Roba che non usiamo e che pesa: toglierla dimezza il file e riduce le
     # occasioni di falso positivo antivirus.
     excludes=[
-        "numpy", "pandas", "matplotlib", "PIL", "scipy",
+        "numpy", "pandas", "matplotlib", "PIL", "scipy", "tkinter",
         "PyQt5", "PyQt6", "PySide2", "PySide6",
         "test", "unittest", "pydoc_data", "lib2to3",
     ],
