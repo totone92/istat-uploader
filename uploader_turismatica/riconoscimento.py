@@ -54,11 +54,15 @@ class Nodo:
     figli: list[Nodo | str] = field(default_factory=list)
     padre: Nodo | None = field(default=None, repr=False)
 
-    def testo(self) -> str:
+    def testo(self, *, senza_classe: str = "") -> str:
+        """Il testo del nodo, spazi normalizzati. ``senza_classe``: salta i
+        discendenti con quella classe (vedi ``pagina_movimenti._testo_cella``)."""
         parti: list[str] = []
 
         def visita(n: Nodo) -> None:
             if n.tag in ("script", "style"):
+                return
+            if senza_classe and n is not self and senza_classe in n.attrs.get("class", "").split():
                 return
             for f in n.figli:
                 if isinstance(f, str):
@@ -462,6 +466,24 @@ def _ripulisci_attributo(nome: str, valore: str) -> str:
     if nome in _ATTRIBUTI_DI_FORMA:
         return valore
     return _TOKEN.sub("[TOKEN RIMOSSO]", valore)
+
+
+def ripulisci_indirizzo(url: str) -> str:
+    """Un indirizzo da scrivere nel registro: senza sessione, token e
+    parametri riservati. Il token si cerca **pezzo per pezzo** (fra ``/ ? & =``):
+    sull'indirizzo intero la regola dei token si mangerebbe il percorso, che è
+    proprio ciò che il registro deve dire."""
+    url = _PARAMETRI_RISERVATI.sub(r"\1" + RIMOSSO, _SESSIONE.sub("", url))
+    url = _CF.sub("[CODICE FISCALE RIMOSSO]", url)
+    return re.sub(
+        r"[^/?&=;#:]+",
+        lambda m: "[TOKEN RIMOSSO]" if _TOKEN.fullmatch(m.group(0)) else m.group(0),
+        url,
+    )
+
+
+def ripulisci_titolo(titolo: str) -> str:
+    return _ripulisci_testo(titolo)
 
 
 def _svuota(n: Nodo) -> None:

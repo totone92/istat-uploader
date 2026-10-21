@@ -4,3 +4,5 @@
 tests/fixtures/*.txt -text
 # le pagine vere del portale: byte per byte, come sono state salvate
 tests/fixtures/turismatica/*.html -text
+# PrimeFaces 6.2 per i test in Chrome: byte per byte, come nel jar
+tests/fixtures/primefaces-6.2/* -text

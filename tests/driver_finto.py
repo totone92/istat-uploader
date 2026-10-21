@@ -9,8 +9,10 @@ argomento di troppo, e lo si è scoperto sul PC di Marco.
 Cosa fa:
 
 * ``get(url)``: ``prehome.xhtml`` → la copia vera di prehome;
-  ``movimentoospiti.xhtml?idStruttura=N`` → la copia vera dei movimenti, con
-  il numero 12345 sostituito da N (intestazione, CIR, CIN, link: coerenti);
+  ``movimentoospiti.xhtml?idStruttura=N`` → la copia vera dei movimenti **come
+  la mostra Chrome dopo il JavaScript** (``movimenti-dopo-js.html``: PrimeFaces
+  aggiunge l'etichetta della colonna in ogni cella — il guasto della v1.3.1),
+  con il numero 12345 sostituito da N (intestazione, CIR, CIN, link: coerenti);
 * con ``ricorda_scelta=True`` imita un portale che **ignora** l'indirizzo e
   apre la struttura scelta l'ultima volta in prehome, finché non se ne sceglie
   un'altra con la tendina e «Accedi»;
@@ -21,6 +23,8 @@ Cosa fa:
   abbiamo immaginato.
 
 Ogni ``execute_script`` e ogni bottone premuto restano in ``self.registro``.
+
+⚠️ Il finto non è Chrome: selettori e JavaScript li prova ``test_chrome_vero.py``.
 """
 from __future__ import annotations
 
@@ -32,7 +36,7 @@ from uploader_turismatica.portale import MOVIMENTI_URL, PREHOME_URL
 
 CARTELLA = Path(__file__).parent / "fixtures" / "turismatica"
 _PREHOME = (CARTELLA / "prehome.html").read_text(encoding="utf-8")
-_MOVIMENTI = (CARTELLA / "movimenti.html").read_text(encoding="utf-8")
+_MOVIMENTI = (CARTELLA / "movimenti-dopo-js.html").read_text(encoding="utf-8")
 #: La struttura selezionata nella copia vera di prehome.
 SCELTA_INIZIALE = "12341"
 
@@ -100,6 +104,11 @@ class DriverFinto:
             self.prehome_lenta -= 1
             return "<html><body><div class='caricamento'></div></body></html>"
         return self._pagina
+
+    @property
+    def title(self) -> str:
+        m = re.search(r"<title>([^<]*)</title>", self._pagina)
+        return m.group(1) if m else ""
 
     def quit(self) -> None:
         self.registro.append("quit")

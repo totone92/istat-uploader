@@ -50,7 +50,7 @@ import logging
 import time
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
@@ -130,6 +130,50 @@ ATTESA_SCHEDA_S = 10.0
 ATTESA_BOTTONE_S = 5.0
 
 Avanzamento = Callable[[str], None]
+
+
+# ─── la diagnosi sul campo ───────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class Copie:
+    """Dove mettere le copie **ripulite** (``riconoscimento.ripulisci``) delle
+    pagine che non si sono lette: accanto al registro, da mandare a chi
+    sistema la lettura. Senza (``None``, nei test) non si salva niente."""
+
+    cartella: Path
+    ora: Callable[[], datetime]
+
+    def salva(self, nome: str, pagina: str) -> Path | None:
+        if not pagina:
+            return None
+        try:
+            self.cartella.mkdir(parents=True, exist_ok=True)
+            p = self.cartella / f"{nome}-{self.ora():%Y%m%d-%H%M%S}.html"
+            p.write_text(riconoscimento.ripulisci(pagina), encoding="utf-8")
+            return p
+        except OSError:
+            log.exception("copia della pagina non salvata")
+            return None
+
+
+def diagnosi(driver: WebDriver, nome: str, cosa: str, copie: Copie | None) -> None:
+    """Dove siamo quando una pagina non si è letta: indirizzo e titolo nel
+    registro, e la copia ripulita della pagina. È ciò che il giro sul PC del
+    gestore deve lasciare dietro di sé perché il successivo non sia alla cieca
+    (v1.3.1: «pagina dei movimenti non aperta» otto volte, e nient'altro)."""
+    try:
+        titolo = driver.title or ""
+    except WebDriverException:
+        titolo = ""
+    sorgente = ""
+    with contextlib.suppress(WebDriverException):
+        sorgente = driver.page_source or ""
+    copia = copie.salva(nome, sorgente) if copie is not None else None
+    log.warning("%s — indirizzo: %s · titolo: «%s» · copia: %s",
+                cosa, riconoscimento.ripulisci_indirizzo(_url(driver)),
+                riconoscimento.ripulisci_titolo(titolo.strip()),
+                copia.name if copia else "non salvata")
 
 
 def registra_giorno(
@@ -242,6 +286,7 @@ def carica_struttura(
     strutture_note: Collection[str],
     comunica: date | None,
     avanzamento: Avanzamento | None = None,
+    copie: Copie | None = None,
 ) -> EsitoStruttura:
     """Carica i giorni del periodo per **una** struttura — o, con ``prova``,
     arriva fino all'ultimo passo di ogni giorno e non lo fa (``carica_giorno``).
@@ -273,7 +318,7 @@ def carica_struttura(
     if periodo is not None:
         _carica_giorni(driver, esito, id_turismatica=id_turismatica, etichetta=etichetta,
                        sorgente=sorgente, periodo=periodo, prova=prova,
-                       strutture_note=strutture_note, dillo=dillo)
+                       strutture_note=strutture_note, dillo=dillo, copie=copie)
     if comunica is not None and esito.saltata is None:
         if esito.quanti(Esito.NON_RIUSCITO) or esito.quanti(Esito.FILE_MANCANTE):
             esito.comunicazione = ("comunicazione mensile non inviata: prima vanno "
@@ -282,6 +327,7 @@ def carica_struttura(
             dillo(f"comunicazione mensile di {MESI[comunica.month - 1]} {comunica.year}")
             esito.comunicazione_riuscita, esito.comunicazione = invia_comunicazione(
                 driver, id_turismatica, comunica, prova=prova, strutture_note=strutture_note,
+                copie=copie,
             )
     return esito
 
@@ -289,10 +335,10 @@ def carica_struttura(
 def _carica_giorni(
     driver: WebDriver, esito: EsitoStruttura, *, id_turismatica: str, etichetta: str,
     sorgente: Sorgente, periodo: Periodo, prova: bool, strutture_note: Collection[str],
-    dillo: Callable[[str], None],
+    dillo: Callable[[str], None], copie: Copie | None,
 ) -> None:
     dillo(f"apro la pagina dei movimenti di {etichetta}")
-    problema = apri_movimenti(driver, id_turismatica, strutture_note=strutture_note)
+    problema = apri_movimenti(driver, id_turismatica, strutture_note=strutture_note, copie=copie)
     if problema is None:
         etichetta_mese = f"{MESI[periodo.dal.month - 1]} {periodo.dal.year}"
         raggiunto = vai_al_mese(driver, periodo.dal)
@@ -586,8 +632,11 @@ def _entra_da_prehome(driver: WebDriver, id_turismatica: str) -> bool:
         return False
     with contextlib.suppress(TimeoutException, WebDriverException):
         WebDriverWait(driver, 20).until(lambda d: "prehome" not in (d.current_url or ""))
-    if "movimentoospiti" not in _url(driver):
-        driver.get(MOVIMENTI_URL.format(id_turismatica))
+    log.info("dopo «Accedi»: %s", riconoscimento.ripulisci_indirizzo(_url(driver)))
+    # Sempre, anche se l'indirizzo dice già «movimentoospiti»: dopo «Accedi» il
+    # portale può atterrare su una sua home, e la struttura scelta è ormai
+    # quella della sessione. L'indirizzo diretto è ciò che si vuole aprire.
+    driver.get(MOVIMENTI_URL.format(id_turismatica))
     return _aspetta_pagina(
         driver, lambda p: bool(p.righe) and _sulla_struttura(p, id_turismatica) is not False, ATTESA_PAGINA_S,
     ) is not None
@@ -595,6 +644,7 @@ def _entra_da_prehome(driver: WebDriver, id_turismatica: str) -> bool:
 
 def apri_movimenti(
     driver: WebDriver, id_turismatica: str, *, strutture_note: Collection[str],
+    copie: Copie | None = None,
 ) -> str | None:
     """Apre la pagina dei movimenti della struttura. ``None`` se è pronta;
     altrimenti il messaggio per il gestore (cosa è successo e cosa fare).
@@ -605,27 +655,38 @@ def apri_movimenti(
     gestore: tendina, «Accedi». Una pagina che non dice di chi è si accetta
     (``_sulla_struttura`` → ``None``): l'indirizzo l'abbiamo scritto noi."""
     driver.get(MOVIMENTI_URL.format(id_turismatica))
-    p = _aspetta_pagina(driver, lambda p: bool(p.righe) or p.struttura is not None, ATTESA_PAGINA_S)
-    if p is not None and _sulla_struttura(p, id_turismatica) is False:
+    # Si aspetta la TABELLA, non l'intestazione: l'intestazione arriva col
+    # caricamento, le righe possono arrivare dopo. Si smette prima solo se la
+    # pagina è di un'altra struttura.
+    p = _aspetta_pagina(
+        driver, lambda p: bool(p.righe) or _sulla_struttura(p, id_turismatica) is False,
+        ATTESA_PAGINA_S,
+    ) or pagina(driver)
+    if _sulla_struttura(p, id_turismatica) is False:
         log.warning(
             "l'indirizzo diretto ha aperto la struttura %s invece di %s: passo da prehome",
             p.struttura.id_turismatica if p.struttura else "?", id_turismatica,
         )
         _entra_da_prehome(driver, id_turismatica)
         p = pagina(driver)
-    elif p is None or not p.righe:
-        log.info("pagina dei movimenti di %s senza tabella: provo da prehome", id_turismatica)
-        if _entra_da_prehome(driver, id_turismatica):
-            p = pagina(driver)
-    if p is not None and p.struttura is not None and not stato_utilizzabile(p.struttura.stato or None):
+    elif not p.righe:
+        diagnosi(driver, f"pagina-movimenti-{id_turismatica}-diretta",
+                 f"pagina dei movimenti di {id_turismatica} senza tabella: provo da prehome", copie)
+        _entra_da_prehome(driver, id_turismatica)
+        p = pagina(driver)
+    if p.struttura is not None and not stato_utilizzabile(p.struttura.stato or None):
         return messaggi.struttura_non_attiva(id_turismatica, p.struttura.stato)
-    if p is None or not p.righe:
+    if not p.righe:
+        diagnosi(driver, f"pagina-movimenti-{id_turismatica}",
+                 f"pagina dei movimenti di {id_turismatica} non aperta", copie)
         return messaggi.perche_movimenti_non_aperti(
             id_turismatica,
             url=_url(driver), testo_pagina=_testo_visibile(driver),
             strutture_note=strutture_note,
         )
     if _sulla_struttura(p, id_turismatica) is False:
+        diagnosi(driver, f"pagina-movimenti-{id_turismatica}",
+                 f"pagina dei movimenti di un'altra struttura invece di {id_turismatica}", copie)
         return messaggi.struttura_diversa(id_turismatica)
     return None
 
@@ -725,7 +786,7 @@ class MeseLetto:
     problema: str | None = None
 
 
-def leggi_mese(driver: WebDriver, voluto: date) -> MeseLetto:
+def leggi_mese(driver: WebDriver, voluto: date, *, copie: Copie | None = None) -> MeseLetto:
     """Il mese voluto, dalla pagina dei movimenti già aperta. Sola lettura:
     frecce del mese e schede, nient'altro."""
     raggiunto = vai_al_mese(driver, voluto)
@@ -745,12 +806,18 @@ def leggi_mese(driver: WebDriver, voluto: date) -> MeseLetto:
         righe = [] if chiuso is None else [
             r for r in chiuso.righe if (r.giorno.year, r.giorno.month) == (voluto.year, voluto.month)
         ]
+        if not righe:
+            # La scheda «Movimento periodo chiuso» non l'abbiamo mai vista dal
+            # vero: la copia si prende qui, con la scheda ancora aperta.
+            diagnosi(driver, f"pagina-periodo-chiuso-{voluto:%Y%m}",
+                     f"periodo chiuso: giorni di {etichetta} non letti", copie)
         # Si torna sul periodo aperto: è lì che lavora il resto del giro.
         apri_scheda(driver, SCHEDA_APERTO)
         if not righe:
             return MeseLetto(chiuso=True, problema=messaggi.mese_chiuso_non_letto(etichetta))
         return MeseLetto(righe, chiuso=True)
     mostrato = pagina(driver).mese
+    diagnosi(driver, f"pagina-mese-{voluto:%Y%m}", f"{etichetta} non raggiunto", copie)
     return MeseLetto(problema=messaggi.mese_non_raggiunto(
         f"{MESI[mostrato.month - 1]} {mostrato.year}" if mostrato else "un altro mese", etichetta,
     ))
@@ -777,7 +844,7 @@ return null;
 
 def invia_comunicazione(
     driver: WebDriver, id_turismatica: str, mese: date, *, prova: bool,
-    strutture_note: Collection[str],
+    strutture_note: Collection[str], copie: Copie | None = None,
 ) -> tuple[bool, str]:
     """La comunicazione telematica mensile di ``mese``. ``(riuscita, frase)``.
 
@@ -787,7 +854,7 @@ def invia_comunicazione(
     ci si ferma prima di premere «Invia». La verifica è rileggere la pagina:
     il mese deve essere uscito dal periodo aperto."""
     etichetta = f"{MESI[mese.month - 1]} {mese.year}"
-    problema = apri_movimenti(driver, id_turismatica, strutture_note=strutture_note)
+    problema = apri_movimenti(driver, id_turismatica, strutture_note=strutture_note, copie=copie)
     if problema is not None:
         return False, problema
     if vai_al_mese(driver, mese) is not Raggiunto.SI:
@@ -822,7 +889,7 @@ def invia_comunicazione(
     _premi(driver, str(dialogo["si"]))
     time.sleep(2)
     # La verifica: il mese non è più fra quelli aperti.
-    apri_movimenti(driver, id_turismatica, strutture_note=strutture_note)
+    apri_movimenti(driver, id_turismatica, strutture_note=strutture_note, copie=copie)
     if vai_al_mese(driver, mese) is Raggiunto.CHIUSO:
         log.info("struttura=%s comunicazione mensile %s: confermata", id_turismatica, f"{mese:%m/%Y}")
         return True, f"comunicazione di {etichetta} inviata."

@@ -175,6 +175,14 @@ Nell'ordine. Se un passo non torna, **fermati lì** e manda registro e copie.
    - ❌ se una struttura dice «Il portale mostra … e non sono riuscito a passare
      a …»: il cambio di mese non ha funzionato. Puoi proseguire lo stesso;
      segnalalo, e manda il file `pagina-movimenti-….html` se c'è.
+   - ❌ se una struttura dice «Il portale non ha aperto la pagina dei
+     movimenti»: manda `IstatUploader.log` e **tutti** i file
+     `pagina-movimenti-<numero>-….html` accanto al registro (ce ne sono due per
+     struttura: `…-diretta-…` è la prima strada, l'altro dopo la scelta da
+     prehome). Il registro dice anche indirizzo e titolo della pagina.
+   - se il mese scorso risulta nel periodo chiuso e non si leggono i suoi
+     giorni, il programma salva `pagina-periodo-chiuso-AAAAMM-….html`: mandalo,
+     quella scheda non l'abbiamo mai vista.
    - controlla anche **comune, tipologia e CIN** sotto il nome: vengono
      dall'intestazione dei movimenti, e il mese scorso deve dire «comunicato»
      o «da comunicare» come sul portale.

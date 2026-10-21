@@ -113,6 +113,23 @@ def test_le_righe_del_mese_aperto(movimenti: str) -> None:
     assert all(not r.id_carica and not r.caricato for r in p.righe[1:])
 
 
+def test_le_etichette_di_primefaces_nelle_celle_non_sono_valori(movimenti: str) -> None:
+    """La stessa pagina dopo il JavaScript (``movimenti-dopo-js.html``, da
+    Chrome): ogni cella porta l'etichetta della colonna. La lettura deve dare
+    le stesse righe — e una cella vuota non deve leggere «Arrivi»."""
+    dopo = (CARTELLA / "movimenti-dopo-js.html").read_text(encoding="utf-8")
+    assert '<span class="ui-column-title">Arrivi</span></td>' in dopo
+    assert leggi_pagina(dopo).righe == leggi_pagina(movimenti).righe
+    assert not any(r.caricato for r in leggi_pagina(dopo).righe)
+
+
+def test_un_valore_che_non_e_un_numero_non_fa_caricato() -> None:
+    from uploader_turismatica.pagina_movimenti import giorno_gia_caricato
+    celle = ["", "01/10/2026", "3", "Arrivi", "Partenze", "Presenze", "Unità occupate"]
+    assert not giorno_gia_caricato(celle, [])
+    assert giorno_gia_caricato(["", "01/10/2026", "3", "0", "1", "2", "1"], [])
+
+
 def test_le_schede_e_le_frecce(movimenti: str) -> None:
     p = leggi_pagina(movimenti)
     assert p.schede[SCHEDA_CHIUSO] == 1 and p.schede[SCHEDA_APERTO] == 2
@@ -176,3 +193,15 @@ def test_la_copia_della_pagina_vera_si_rilegge_uguale(movimenti: str, prehome: s
     assert leggi_pagina(ripulisci(movimenti)).righe == leggi_pagina(movimenti).righe
     assert intestazione(ripulisci(movimenti)) == intestazione(movimenti)
     assert strutture(ripulisci(prehome)) == strutture(prehome)
+
+
+def test_l_indirizzo_nel_registro_tiene_il_percorso_e_perde_i_segreti() -> None:
+    from uploader_turismatica.riconoscimento import ripulisci_indirizzo
+    url = ("https://turismatica.regione.umbria.it/ntojsf/private/OSR/movimento/"
+           "movimentoospiti.xhtml?idStruttura=12345")
+    assert ripulisci_indirizzo(url) == url
+    sporco = "https://x.it/a/b.xhtml;jsessionid=ABC123?token=segreto&par=0f3c9a1b2d4e5f60718293a4b5c6d7e8f9"
+    pulito = ripulisci_indirizzo(sporco)
+    assert "ABC123" not in pulito and "segreto" not in pulito
+    assert "0f3c9a1b2d4e5f60718293a4b5c6d7e8f9" not in pulito
+    assert pulito.startswith("https://x.it/a/b.xhtml?")

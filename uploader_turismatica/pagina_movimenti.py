@@ -85,7 +85,9 @@ def giorno_gia_caricato(
         return True
     da_fare = any("fa-angle-double-down" in c for c in classi)
     valori = [c.strip() for c in celle[_VALORI]]
-    return len(valori) == 4 and all(valori) and not da_fare
+    # Numeri, non «qualcosa»: una cella che leggesse l'etichetta di colonna
+    # («Arrivi», vedi ``_ETICHETTA_REFLOW``) non deve valere come valore.
+    return len(valori) == 4 and all(v.isdigit() for v in valori) and not da_fare
 
 
 @dataclass
@@ -197,9 +199,23 @@ _FORMA = ("", "data", "presenze notte precedente", "arrivi", "partenze", "presen
           "unità occupate")
 
 
+#: L'etichetta che PrimeFaces **aggiunge in ogni cella** quando la tabella è
+#: «reflow» (``<span class="ui-column-title">Data</span>01/10/2026``), per gli
+#: schermi stretti. ⚠️ Non c'è nell'HTML che manda il server — la mette il
+#: JavaScript all'avvio, quindi c'è in Chrome e non c'era nella copia del HAR:
+#: è il guasto della v1.3.1 (data mai riconosciuta, «senza tabella» su tutte e
+#: otto le strutture). E al rovescio sarebbe peggio: una cella vuota leggerebbe
+#: «Arrivi», cioè un valore, e il giorno sembrerebbe già caricato.
+_ETICHETTA_REFLOW = "ui-column-title"
+
+
+def _testo_cella(td: Nodo) -> str:
+    return td.testo(senza_classe=_ETICHETTA_REFLOW)
+
+
 def _riga(tr: Nodo, colonne: dict[str, int]) -> RigaPortale | None:
     celle = [c for c in tr.figli if isinstance(c, Nodo) and c.tag == "td"]
-    testi = [c.testo() for c in celle]
+    testi = [_testo_cella(c) for c in celle]
     pos_data = colonne.get("data")
     if pos_data is None or pos_data >= len(testi) or not _DATA.match(testi[pos_data]):
         pos_data = next((i for i, t in enumerate(testi) if _DATA.match(t)), None)

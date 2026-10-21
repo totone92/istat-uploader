@@ -41,6 +41,59 @@ personale scritta `~`.
 
 ---
 
+## v1.3.2 — la tabella vista da Chrome (21/10/2026)
+
+Sul PC di Marco la v1.3.1 ha letto e confermato le 8 strutture, poi per **ognuna**:
+«pagina dei movimenti … senza tabella: provo da prehome» → «scelta da prehome:
+ok» → dopo ~18 s «Il portale non ha aperto la pagina dei movimenti». Sempre,
+in prova e in vera: non lentezza, lettura.
+
+**Perché.** La copia della pagina dei movimenti nelle fixture è l'HTML del
+**server** (dal HAR): celle `<td>01/10/2026</td>`. In Chrome gira PrimeFaces, e
+la tabella è «reflow» (`ui-datatable-reflow`): all'avvio aggiunge in **ogni
+cella** l'etichetta della colonna per gli schermi stretti —
+`<td><span class="ui-column-title">Data</span>01/10/2026</td>`. Il testo
+della cella diventa «Data01/10/2026», la data non si riconosce, zero righe. Le
+celle vuote leggevano «Arrivi», «Partenze»…: se la data fosse passata, un
+giorno vuoto sarebbe sembrato **già caricato**. Riprodotto in Chromium con il
+JavaScript vero di PrimeFaces 6.2 prima di cambiare una riga.
+
+Le altre ipotesi, verificate: i selettori CSS con gli id JSF hanno già l'escape
+(`#movimentiTabView\:…`) e ora un test lo prova in Chrome; il controllo
+«struttura giusta» leggeva bene (l'intestazione non cambia col JavaScript).
+
+**Cosa cambia**
+- `pagina_movimenti._testo_cella`: il testo di una cella **senza**
+  `span.ui-column-title`. E `giorno_gia_caricato` vuole **numeri** nei valori,
+  non «qualcosa».
+- `apri_movimenti` aspetta la **tabella**, non l'intestazione (che arriva
+  prima); dopo «Accedi» in `prehome` riapre **sempre** l'indirizzo diretto.
+- **Diagnosi sul campo** (`portale.diagnosi`, `portale.Copie`): ovunque la
+  pagina non si legga — movimenti (anche alla prima strada, `…-diretta-…`), mese
+  non raggiunto, scheda «Movimento periodo chiuso» senza giorni — il registro
+  dice **indirizzo e titolo** della pagina e accanto al registro resta la copia
+  ripulita: `pagina-movimenti-<id>-…html`, `pagina-movimenti-<id>-diretta-…html`,
+  `pagina-periodo-chiuso-AAAAMM-…html`, `pagina-mese-AAAAMM-…html`. Vale anche
+  per il giro di caricamento e per la comunicazione mensile.
+- **`tests/test_chrome_vero.py`** (+ `tests/chrome_vero.py`): un server locale
+  serve le copie del portale con il JavaScript di PrimeFaces 6.2
+  (`tests/fixtures/primefaces-6.2/`, dal jar ufficiale, Apache 2.0) a un
+  **Chrome vero headless** che risolve solo `127.0.0.1`. Provano: la lettura
+  dopo il JavaScript uguale a quella dell'HTML del server, i selettori in
+  Chrome, l'indirizzo diretto, la strada da `prehome` con la tendina e il POST
+  di «Accedi» vero di PrimeFaces (il server risponde con un redirect a una home),
+  la diagnosi, e `SessioneSelenium` da capo (strutture → mese). Sul giro di
+  GitHub `CHROME_OBBLIGATORIO=1`: senza Chrome falliscono, non si saltano.
+- Il `DriverFinto` serve la pagina **dopo** il JavaScript
+  (`movimenti-dopo-js.html`, `page_source` di Chrome); un test in Chrome
+  controlla che resti fedele.
+
+**Non provato** (nessuna copia vera): il contenuto della scheda «Movimento
+periodo chiuso» e il dialog di caricamento aperto dal portale (in Chrome
+locale `PrimeFaces.ab` non ha un server JSF dietro).
+
+---
+
 ## v1.3.1 — la prima lettura dei mesi sul portale vero (20/10/2026)
 
 Sul PC di Marco la v1.3.0 ha letto le 8 strutture e si è fermata subito dopo:
@@ -153,7 +206,7 @@ Queste cose **non sono verificate** e vanno provate su un PC vero:
 
 **Cosa invece è provato**, e non a parole:
 
-- **216 test** su tutto ciò che non è il browser: i nomi dei file (beb,
+- **227 test**, di cui 8 in un Chrome vero (`test_chrome_vero.py`); gli altri su tutto ciò che non è il browser: i nomi dei file (beb,
   generati da HostLab col CIN, script originale), lo zip, il periodo, il
   riepilogo, le regole del portale, le strutture salvate, **la modalità prova**
   (con un finto della *nostra* interfaccia `Passi`, non del portale) e il
@@ -414,7 +467,7 @@ plausibilità della data, che è un indovinello. C'è un test apposta.
 
 ```bash
 uv venv && uv pip install -r requirements-dev.txt
-.venv/bin/python -m pytest -q          # 216 test
+.venv/bin/python -m pytest -q          # 227 test (Chrome: CHROMEDRIVER=/snap/bin/chromium.chromedriver)
 .venv/bin/python scripts/zip_di_prova.py dist/prova-settembre-2026.zip
 .venv/bin/python -m ruff check .
 .venv/bin/python -m uploader_turismatica            # la finestra

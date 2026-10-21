@@ -30,6 +30,7 @@ from uploader_turismatica.periodo import Periodo
 from uploader_turismatica.piano import StatoMese, stato_dalle_righe
 from uploader_turismatica.portale import (
     PREHOME_URL,
+    Copie,
     apri_movimenti,
     apri_portale,
     carica_struttura,
@@ -83,7 +84,7 @@ class SessioneSelenium:
     """Il portale vero, attraverso Chrome."""
 
     def __init__(self, cartella_copie: Path, ora: Callable[[], datetime]) -> None:
-        self._cartella_copie = cartella_copie
+        self._copie = Copie(cartella_copie, ora)
         self._ora = ora
         self._driver: WebDriver | None = None
 
@@ -132,7 +133,7 @@ class SessioneSelenium:
             log.info("strutture lette dal portale: %s",
                      ", ".join(s.id_turismatica for s in trovate))
             return LetturaStrutture(trovate)
-        copia = self._salva_copia("pagina-strutture", pagina)
+        copia = self._copie.salva("pagina-strutture", pagina)
         log.warning("elenco delle strutture non letto; copia della pagina: %s",
                     copia.name if copia else "non salvata")
         return LetturaStrutture([], copia)
@@ -141,15 +142,17 @@ class SessioneSelenium:
         self, id_turismatica: str, mesi: Sequence[date], *, strutture_note: Collection[str],
     ) -> LetturaMesi:
         out = LetturaMesi()
-        problema = apri_movimenti(self.driver, id_turismatica, strutture_note=strutture_note)
+        problema = apri_movimenti(
+            self.driver, id_turismatica, strutture_note=strutture_note, copie=self._copie,
+        )
         out.struttura = pagina(self.driver).struttura
         if problema is not None:
+            # La copia della pagina l'ha già salvata ``apri_movimenti``.
             out.avviso = problema
             log.warning("struttura %s: %s", id_turismatica, problema)
-            self._salva_copia(f"pagina-movimenti-{id_turismatica}", self._sorgente())
             return out
         for mese in mesi:
-            letto = leggi_mese(self.driver, mese)
+            letto = leggi_mese(self.driver, mese, copie=self._copie)
             if letto.righe:
                 stato = stato_dalle_righe(
                     [(r.giorno, r.caricato, bool(r.id_carica)) for r in letto.righe],
@@ -164,7 +167,6 @@ class SessioneSelenium:
                 log.warning("struttura %s, %s: %s", id_turismatica, f"{mese:%m/%Y}", letto.problema)
                 if not letto.chiuso:
                     out.avviso = letto.problema
-                    self._salva_copia(f"pagina-movimenti-{id_turismatica}", self._sorgente())
         return out
 
     def carica(
@@ -176,6 +178,7 @@ class SessioneSelenium:
             self.driver, id_turismatica=id_turismatica, etichetta=etichetta,
             sorgente=sorgente, periodo=periodo, prova=prova,
             strutture_note=strutture_note, comunica=comunica, avanzamento=avanzamento,
+            copie=self._copie,
         )
 
     def chiudi(self) -> None:
@@ -210,17 +213,3 @@ class SessioneSelenium:
             return self.driver.current_url or ""
         except WebDriverException:
             return ""
-
-    def _salva_copia(self, nome: str, pagina: str) -> Path | None:
-        """La copia **ripulita** (``riconoscimento.ripulisci``) accanto al
-        registro, da mandare a chi sistema la lettura."""
-        if not pagina:
-            return None
-        try:
-            self._cartella_copie.mkdir(parents=True, exist_ok=True)
-            p = self._cartella_copie / f"{nome}-{self._ora():%Y%m%d-%H%M%S}.html"
-            p.write_text(riconoscimento.ripulisci(pagina), encoding="utf-8")
-            return p
-        except OSError:
-            log.exception("copia della pagina non salvata")
-            return None
