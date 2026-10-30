@@ -109,6 +109,8 @@ button { font: inherit; }
 .fascia.vera { background: #b42318; color: #fff; }
 .fascia.vera .bottone { background: rgba(255,255,255,.16); color: #fff; border-color: rgba(255,255,255,.4); }
 
+.fascia.nuova-versione { background: var(--ok-tenue); color: var(--testo); font-weight: 500; }
+
 .contenuto {
   flex: 1;
   width: 100%; max-width: 920px;

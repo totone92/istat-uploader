@@ -55,6 +55,8 @@ class PortaleLocale:
     def __init__(self) -> None:
         self.diretta = True
         self.mai_tabella = False
+        #: La sessione è finita: ogni pagina privata rimanda al login pubblico.
+        self.scaduta = False
         self.scelta = ""
         self.richieste: list[str] = []
         portale = self
@@ -74,6 +76,8 @@ class PortaleLocale:
 
             def _rispondi(self, stato: int, tipo: str, corpo: bytes) -> None:
                 self.send_response(stato)
+                if stato == 302:
+                    self.send_header("Location", "/ntojsf/public/login.xhtml")
                 self.send_header("Content-Type", tipo)
                 self.send_header("Content-Length", str(len(corpo)))
                 self.end_headers()
@@ -97,6 +101,10 @@ class PortaleLocale:
     def get(self, percorso: str) -> tuple[int, str, bytes]:
         u = urlparse(percorso)
         nome = u.path.rsplit("/", 1)[-1]
+        if nome == "login.xhtml":
+            return self._pagina("<!DOCTYPE html><html><body><a href='#'>Accedi con SPID</a></body></html>")
+        if self.scaduta and "/private/" in u.path:
+            return 302, "text/html", b""
         if nome.endswith(".js.xhtml"):
             js = PRIMEFACES / nome.removesuffix(".xhtml")
             if js.is_file():

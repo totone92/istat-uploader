@@ -12,6 +12,7 @@ non potevano vederlo.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date, datetime
 from pathlib import Path
 
@@ -158,3 +159,94 @@ def test_la_sessione_vera_in_chrome(
     assert letti.struttura is not None and letti.struttura.id_turismatica == "12345"
     assert list(letti.mesi) == ["2026-10"]
     assert list(tmp_path.iterdir()) == []
+
+
+# ─── la sessione scaduta e la conferma, in Chrome ────────────────────────────
+
+
+def test_il_ritorno_al_login_si_riconosce_e_una_pagina_vera_no(
+    chrome: WebDriver, portale: PortaleLocale, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(modulo_portale, "ATTESA_USCITA_S", 0.0)
+    chrome.get(portale.movimenti_url.format("12345"))
+    assert not modulo_portale.sessione_scaduta(chrome)
+    chrome.get(portale.prehome_url)
+    assert not modulo_portale.sessione_scaduta(chrome)
+    portale.scaduta = True
+    chrome.get(portale.movimenti_url.format("12345"))       # redirect al login
+    assert "/public/" in chrome.current_url
+    assert modulo_portale.sessione_scaduta(chrome)
+    pause: list[bool] = []
+
+    def rientra() -> None:
+        pause.append(True)
+        portale.scaduta = False
+
+    assert modulo_portale.rientra_se_uscito(chrome, rientra) and pause == [True]
+    chrome.get(portale.movimenti_url.format("12345"))
+    assert not modulo_portale.sessione_scaduta(chrome)
+
+
+def test_i_segni_si_leggono_sulla_riga_vera_dopo_il_javascript(
+    chrome: WebDriver, portale: PortaleLocale, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    monkeypatch.setattr(modulo_portale, "ATTESA_CONFERMA_S", 0.5)
+    chrome.get(portale.movimenti_url.format("12345"))
+    passi = modulo_portale._PassiSelenium(chrome, WebDriverWait(chrome, 1))
+    assert not passi.caricato(OTTOBRE)
+    chrome.execute_script(
+        "const r = document.querySelector('#movimentiTabView\\\\:tblMovimenti_data tr');"
+        "const s = document.createElement('span'); s.title = 'File caricato: x.txt';"
+        "r.cells[1].appendChild(s);"
+    )
+    assert passi.caricato(OTTOBRE)
+
+
+# ─── la fascia della versione nuova, nell'interfaccia vera ───────────────────
+
+
+def _apri_interfaccia(chrome: WebDriver, nuova: str, schermata: str = "benvenuto",
+                      dati: str = "{}") -> None:
+    from uploader_turismatica.finestra import UI
+
+    finto = f"""
+      window.__aperture = 0;
+      window.pywebview = {{api: {{
+        stato: async () => ({{rev: 1, schermata: {schermata!r}, dati: {dati}, prova: true,
+          versione: '1.4.0', occupato: false, verifica: {{in_corso: false, testo: ''}},
+          nuova_versione: {nuova!r}}}),
+        apri_nuova_versione: async () => {{ window.__aperture += 1; }},
+      }}}};"""
+    comando = chrome.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": finto})
+    try:
+        chrome.get((UI / "index.html").as_uri())
+        for _ in range(40):
+            if chrome.execute_script("return window.__ui_pronto === true"):
+                break
+            time.sleep(0.1)
+        time.sleep(0.2)
+    finally:
+        chrome.execute_cdp_cmd("Page.removeScriptToEvaluateOnNewDocument",
+                               {"identifier": comando["identifier"]})
+
+
+def test_la_fascia_compare_col_link_e_non_scarica_niente(chrome: WebDriver) -> None:
+    _apri_interfaccia(chrome, "9.9.9")
+    fascia = chrome.find_element("id", "nuova-versione")
+    assert fascia.is_displayed() and "C'è una versione nuova" in fascia.text
+    fascia.find_element("tag name", "a").click()
+    time.sleep(0.2)
+    assert chrome.execute_script("return window.__aperture") == 1
+
+
+def test_senza_versione_nuova_la_fascia_non_c_e(chrome: WebDriver) -> None:
+    _apri_interfaccia(chrome, "")
+    assert not chrome.find_element("id", "nuova-versione").is_displayed()
+
+
+def test_la_schermata_di_rientro_dice_che_il_giro_e_in_pausa(chrome: WebDriver) -> None:
+    _apri_interfaccia(chrome, "", "spid", "{perche: 'scaduta', fase: 'aspetto'}")
+    testo = chrome.find_element("id", "app").text
+    assert "Il portale ti ha fatto uscire" in testo and "riprendo dal giorno" in testo

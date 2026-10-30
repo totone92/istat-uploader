@@ -38,9 +38,11 @@ class PassiFinti:
         bottone: bool = True,
         pronto: bool = True,
         conferma: bool = True,
+        caricato: bool | None = None,
     ) -> None:
         self._riga, self._bottone = riga, bottone
         self._pronto, self._conferma = pronto, conferma
+        self._caricato = conferma if caricato is None else caricato
         self.chiamate: list[str] = []
 
     def riga(self, giorno: date) -> tuple[list[str], list[str], list[str]] | None:
@@ -62,6 +64,10 @@ class PassiFinti:
         self.chiamate.append("conferma")
         return self._conferma
 
+    def caricato(self, giorno: date) -> bool:
+        self.chiamate.append("caricato")
+        return self._caricato
+
     def annulla(self) -> None:
         self.chiamate.append("annulla")
 
@@ -80,8 +86,32 @@ def test_in_modalita_vera_si_preme_carica() -> None:
     passi = PassiFinti()
     assert carica_giorno(passi, GIORNO, FILE, prova=False) is Esito.CARICATO
     assert passi.chiamate == [
-        "riga", "apri_dialog", f"scegli_file:{FILE.name}", "conferma",
+        "riga", "apri_dialog", f"scegli_file:{FILE.name}", "conferma", "caricato",
     ]
+
+
+def test_un_dialog_chiuso_senza_i_segni_sulla_riga_non_e_caricato() -> None:
+    """⭐ Il dialog si chiude anche quando il portale il file non l'ha preso."""
+    passi = PassiFinti(conferma=True, caricato=False)
+    motivi: dict[date, str] = {}
+    assert carica_giorno(passi, GIORNO, FILE, prova=False, motivi=motivi) is Esito.NON_RIUSCITO
+    assert "la finestra si è chiusa" in motivi[GIORNO]
+
+
+def test_un_dialog_rimasto_aperto_ma_col_segno_sulla_riga_e_caricato() -> None:
+    passi = PassiFinti(conferma=False, caricato=True)
+    assert carica_giorno(passi, GIORNO, FILE, prova=False) is Esito.CARICATO
+    assert "annulla" in passi.chiamate
+
+
+@pytest.mark.parametrize(("passi", "frase"), [
+    (PassiFinti(bottone=False), "non apre"),
+    (PassiFinti(conferma=False), "non ha chiuso"),
+])
+def test_ogni_non_riuscito_dice_perche(passi: PassiFinti, frase: str) -> None:
+    motivi: dict[date, str] = {}
+    assert carica_giorno(passi, GIORNO, FILE, prova=False, motivi=motivi) is Esito.NON_RIUSCITO
+    assert frase in motivi[GIORNO]
 
 
 @pytest.mark.parametrize("prova", [True, False])
@@ -128,7 +158,7 @@ def test_un_carica_fallito_in_modalita_vera_chiude_il_dialog() -> None:
     """Un dialog rimasto aperto fa fallire anche il giorno dopo."""
     passi = PassiFinti(conferma=False)
     assert carica_giorno(passi, GIORNO, FILE, prova=False) is Esito.NON_RIUSCITO
-    assert passi.chiamate[-2:] == ["conferma", "annulla"]
+    assert passi.chiamate[-3:] == ["conferma", "annulla", "caricato"]
 
 
 @pytest.mark.parametrize("funzione", [carica_giorno, carica_struttura])

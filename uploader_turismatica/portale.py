@@ -111,12 +111,6 @@ _CHIUDI_DIALOG = (
 #: vero. Era così nello script originale e resta così.
 TENTATIVI_CARICA = 3
 
-#: File mancanti di fila dopo i quali si smette con questa struttura. Il senso è
-#: che tre buchi consecutivi non sono tre giorni senza movimento — quelli hanno
-#: comunque il file — ma la cartella sbagliata o un download interrotto:
-#: continuare per altri ventisette giorni non aggiunge informazione.
-MANCANTI_DI_FILA = 3
-
 #: Pausa fra un giorno e l'altro: il portale è un JSF che ricostruisce la
 #: tabella a ogni upload. Gentile di proposito.
 PAUSA_FRA_GIORNI_S = 0.5
@@ -128,8 +122,16 @@ ATTESA_SCHEDA_S = 10.0
 #: Quanto aspettare che il bottone «carica da FILE» compaia sulla riga del
 #: giorno, dopo il caricamento del giorno prima.
 ATTESA_BOTTONE_S = 5.0
+#: Quanto aspettare, dopo «Carica», che la riga del giorno mostri i segni di
+#: giorno caricato: il portale ricostruisce la tabella con una chiamata sua.
+ATTESA_CONFERMA_S = 15.0
+#: Prima di dire che la sessione è finita si riguarda dopo questa pausa: durante
+#: un cambio di pagina l'indirizzo può passare un attimo per il login.
+ATTESA_USCITA_S = 2.0
 
 Avanzamento = Callable[[str], None]
+#: Aspetta che il gestore rientri con SPID/CIE. Senza scadenza.
+Rientro = Callable[[], None]
 
 
 # ─── la diagnosi sul campo ───────────────────────────────────────────────────
@@ -228,22 +230,6 @@ def tabella_sul_mese_giusto(prima_riga: date | None, atteso: date) -> bool:
     return (prima_riga.month, prima_riga.year) == (atteso.month, atteso.year)
 
 
-class ContatoreMancanti:
-    """Quanti file mancanti di fila, e quando smettere."""
-
-    def __init__(self, soglia: int = MANCANTI_DI_FILA) -> None:
-        self.soglia = soglia
-        self.di_fila = 0
-
-    def manca(self) -> bool:
-        """Registra un file mancante. ``True`` se si deve smettere."""
-        self.di_fila += 1
-        return self.di_fila >= self.soglia
-
-    def trovato(self) -> None:
-        self.di_fila = 0
-
-
 # ─── il login: si aspetta, non si fa ─────────────────────────────────────────
 
 
@@ -272,6 +258,40 @@ def sembra_dentro(driver: WebDriver) -> bool:
         return False
 
 
+def _fuori_dal_portale(driver: WebDriver) -> bool:
+    url = _url(driver)
+    # Niente indirizzo (Chrome chiuso), about:blank, pagina d'errore di rete: non
+    # è una sessione finita, e rientrare con SPID non servirebbe a niente.
+    if not url.startswith("http"):
+        return False
+    if "/private/" not in url:
+        return True
+    testo = _testo_visibile(driver).lower()
+    return any(s in testo for s in messaggi.SEGNI_USCITA)
+
+
+def sessione_scaduta(driver: WebDriver) -> bool:
+    """Il portale ci ha rimandati al login o a una pagina pubblica?"""
+    if not _fuori_dal_portale(driver):
+        return False
+    time.sleep(ATTESA_USCITA_S)
+    return _fuori_dal_portale(driver)
+
+
+def rientra_se_uscito(driver: WebDriver, rientra: Rientro | None) -> bool:
+    """Se la sessione è finita mette il giro in pausa finché il gestore non è
+    rientrato. ``True`` se è successo: chi chiama deve riaprire la sua pagina,
+    e ricontrollare (il gestore può aver premuto «Sono dentro» senza esserlo)."""
+    if rientra is None or not sessione_scaduta(driver):
+        return False
+    log.warning("sessione finita, in attesa del rientro — indirizzo: %s",
+                riconoscimento.ripulisci_indirizzo(_url(driver)))
+    with contextlib.suppress(WebDriverException):
+        apri_portale(driver)
+    rientra()
+    return True
+
+
 # ─── il caricamento di una struttura ─────────────────────────────────────────
 
 
@@ -287,6 +307,7 @@ def carica_struttura(
     comunica: date | None,
     avanzamento: Avanzamento | None = None,
     copie: Copie | None = None,
+    rientra: Rientro | None = None,
 ) -> EsitoStruttura:
     """Carica i giorni del periodo per **una** struttura — o, con ``prova``,
     arriva fino all'ultimo passo di ogni giorno e non lo fa (``carica_giorno``).
@@ -295,6 +316,9 @@ def carica_struttura(
     comunicazione telematica mensile di quel mese (``invia_comunicazione``).
     Si tenta solo se nessun giorno è andato storto. Non ha default: la chiede
     il gestore, con una conferma sua, e dimenticarla non deve volerla dire.
+
+    ``rientra``: la pausa quando la sessione del portale finisce a metà giro
+    (``rientra_se_uscito``); al ritorno si riprende dal giorno dov'eravamo.
 
     Non solleva per i problemi di quella struttura: li mette nell'esito. Il
     chiamante passa alla successiva — una struttura rotta non deve togliere il
@@ -318,13 +342,14 @@ def carica_struttura(
     if periodo is not None:
         _carica_giorni(driver, esito, id_turismatica=id_turismatica, etichetta=etichetta,
                        sorgente=sorgente, periodo=periodo, prova=prova,
-                       strutture_note=strutture_note, dillo=dillo, copie=copie)
+                       strutture_note=strutture_note, dillo=dillo, copie=copie, rientra=rientra)
     if comunica is not None and esito.saltata is None:
         if esito.quanti(Esito.NON_RIUSCITO) or esito.quanti(Esito.FILE_MANCANTE):
             esito.comunicazione = ("comunicazione mensile non inviata: prima vanno "
                                    "sistemati i giorni non caricati.")
         else:
             dillo(f"comunicazione mensile di {MESI[comunica.month - 1]} {comunica.year}")
+            rientra_se_uscito(driver, rientra)
             esito.comunicazione_riuscita, esito.comunicazione = invia_comunicazione(
                 driver, id_turismatica, comunica, prova=prova, strutture_note=strutture_note,
                 copie=copie,
@@ -332,64 +357,130 @@ def carica_struttura(
     return esito
 
 
+def _apri_mese(
+    driver: WebDriver, id_turismatica: str, mese: date, *, strutture_note: Collection[str],
+    copie: Copie | None,
+) -> str | None:
+    """La pagina dei movimenti, sul mese voluto. ``None`` se è pronta."""
+    problema = apri_movimenti(driver, id_turismatica, strutture_note=strutture_note, copie=copie)
+    if problema is not None:
+        return problema
+    etichetta_mese = f"{MESI[mese.month - 1]} {mese.year}"
+    raggiunto = vai_al_mese(driver, mese)
+    if raggiunto is Raggiunto.CHIUSO:
+        return messaggi.mese_chiuso(etichetta_mese)
+    if raggiunto is Raggiunto.NO:
+        mostrato = pagina(driver).mese
+        return messaggi.mese_non_raggiunto(
+            f"{MESI[mostrato.month - 1]} {mostrato.year}" if mostrato else "un altro mese",
+            etichetta_mese,
+        )
+    return None
+
+
+def _primo_buco(p: PaginaMovimenti, sorgente: Sorgente, prima_di: date) -> date | None:
+    """Il primo giorno prima del periodo che il portale non ha e di cui non c'è
+    il file. Il periodo comincia dal primo giorno **con un file**: se sul portale
+    ci sono fino al 5 e nello zip dall'8, il portale l'8 non lo apre."""
+    return next(
+        (r.giorno for r in sorted(p.righe, key=lambda r: r.giorno)
+         if r.giorno < prima_di and not r.caricato and sorgente.file_del(r.giorno) is None),
+        None,
+    )
+
+
 def _carica_giorni(
     driver: WebDriver, esito: EsitoStruttura, *, id_turismatica: str, etichetta: str,
     sorgente: Sorgente, periodo: Periodo, prova: bool, strutture_note: Collection[str],
-    dillo: Callable[[str], None], copie: Copie | None,
+    dillo: Callable[[str], None], copie: Copie | None, rientra: Rientro | None,
 ) -> None:
+    def apri() -> str | None:
+        return _apri_mese(driver, id_turismatica, periodo.dal,
+                          strutture_note=strutture_note, copie=copie)
+
+    def fermati_al_buco(giorno: date) -> None:
+        # Il portale apre i giorni in fila: da qui in poi non si apre niente,
+        # e provarli uno per uno darebbe una raffica di falsi «non riuscito».
+        esito.segna(giorno, Esito.FILE_MANCANTE)
+        esito.fermata = messaggi.file_mancante_fermo(giorno)
+        registra_giorno(id_turismatica, giorno, Esito.FILE_MANCANTE, "", "")
+        dillo(esito.fermata)
+
     dillo(f"apro la pagina dei movimenti di {etichetta}")
-    problema = apri_movimenti(driver, id_turismatica, strutture_note=strutture_note, copie=copie)
-    if problema is None:
-        etichetta_mese = f"{MESI[periodo.dal.month - 1]} {periodo.dal.year}"
-        raggiunto = vai_al_mese(driver, periodo.dal)
-        if raggiunto is Raggiunto.CHIUSO:
-            problema = messaggi.mese_chiuso(etichetta_mese)
-        elif raggiunto is Raggiunto.NO:
-            mostrato = pagina(driver).mese
-            problema = messaggi.mese_non_raggiunto(
-                f"{MESI[mostrato.month - 1]} {mostrato.year}" if mostrato else "un altro mese",
-                etichetta_mese,
-            )
+    problema = apri()
+    while rientra_se_uscito(driver, rientra):
+        problema = apri()
     if problema is not None:
         esito.saltata = problema
         dillo(f"salto: {problema}")
         return
 
+    buco = _primo_buco(pagina(driver), sorgente, periodo.dal)
+    if buco is not None:
+        fermati_al_buco(buco)
+        return
+
     attesa = WebDriverWait(driver, 30)
-    passi = _PassiSelenium(driver, attesa)
-    contatore = ContatoreMancanti()
+    passi = _PassiSelenium(driver, attesa, riapri=apri)
+
+    def ripresa_dopo_uscita() -> bool:
+        """``True`` se c'è stata una pausa e la pagina è di nuovo aperta."""
+        if not rientra_se_uscito(driver, rientra):
+            return False
+        while (problema := apri()) is not None:
+            if not rientra_se_uscito(driver, rientra):
+                esito.saltata = problema
+                dillo(f"salto: {problema}")
+                break
+        return True
+
     for giorno in periodo.giorni:
+        ripresa_dopo_uscita()
+        if esito.saltata is not None:
+            return
         file = sorgente.file_del(giorno)
         if file is None:
-            # Senza file, ma forse il portale ce l'ha già: allora non manca
-            # niente, e non deve contare fra i «mancanti di fila».
+            # Senza file, ma forse il portale ce l'ha già: allora non manca niente.
             riga = passi.riga(giorno)
             if riga is not None and giorno_gia_caricato(*riga):
                 esito.segna(giorno, Esito.GIA_CARICATO)
                 registra_giorno(id_turismatica, giorno, Esito.GIA_CARICATO, "", "")
                 continue
-            esito.segna(giorno, Esito.FILE_MANCANTE)
-            registra_giorno(id_turismatica, giorno, Esito.FILE_MANCANTE, "", "")
-            if contatore.manca():
-                dillo(
-                    f"{MANCANTI_DI_FILA} file mancanti di fila: mi fermo con "
-                    f"{etichetta}"
-                )
-                for restante in periodo.giorni[periodo.giorni.index(giorno) + 1:]:
-                    if restante not in esito.giorni:
-                        esito.segna(restante, Esito.FILE_MANCANTE)
-                break
-            continue
-        contatore.trovato()
+            # Una riga che non si legge perché siamo stati buttati fuori non è un buco.
+            if ripresa_dopo_uscita():
+                if esito.saltata is not None:
+                    return
+                riga = passi.riga(giorno)
+                if riga is not None and giorno_gia_caricato(*riga):
+                    esito.segna(giorno, Esito.GIA_CARICATO)
+                    registra_giorno(id_turismatica, giorno, Esito.GIA_CARICATO, "", "")
+                    continue
+            fermati_al_buco(giorno)
+            return
 
         dillo(f"{giorno:%d/%m/%Y}")
         in_coda = prova and Esito.DA_CARICARE in esito.giorni.values()
-        try:
-            risultato = carica_giorno(passi, giorno, file, prova=prova, in_coda=in_coda)
-            errore = ""
-        except Exception as exc:            # noqa: BLE001 — un giorno non ferma il mese
-            risultato = Esito.NON_RIUSCITO
-            errore = _in_breve(exc)
+        ritentato = False
+        while True:
+            esito.motivi.pop(giorno, None)
+            try:
+                risultato = carica_giorno(passi, giorno, file, prova=prova, in_coda=in_coda,
+                                          motivi=esito.motivi)
+                errore = ""
+            except Exception as exc:            # noqa: BLE001 — un giorno non ferma il mese
+                risultato = Esito.NON_RIUSCITO
+                errore = _in_breve(exc)
+                esito.motivi[giorno] = messaggi.GIORNO_ERRORE
+            # Fallito perché la sessione è finita: non è un giorno fallito, si
+            # riprova questo. Non si carica due volte: ``carica_giorno`` rilegge
+            # la riga, e un giorno già dentro non lo tocca.
+            if risultato is not Esito.NON_RIUSCITO or not ripresa_dopo_uscita():
+                break
+            if esito.saltata is not None:
+                return
+            ritentato = True
+        if ritentato and risultato is Esito.GIA_CARICATO and not prova:
+            risultato = Esito.CARICATO          # è entrato col tentativo di prima
         esito.segna(giorno, risultato, file.name)
         registra_giorno(id_turismatica, giorno, risultato, file.name, errore)
         time.sleep(PAUSA_FRA_GIORNI_S)
@@ -419,7 +510,11 @@ class Passi(Protocol):
 
     def conferma(self) -> bool:
         """Preme «Carica» — **il punto di non ritorno**. ``True`` se il dialog
-        si è chiuso, che è l'unica conferma che il portale dà."""
+        si è chiuso. ⚠️ Non vuol dire caricato: lo dice ``caricato``."""
+        ...
+
+    def caricato(self, giorno: date) -> bool:
+        """Riletta la riga dopo «Carica», ha i segni di giorno caricato?"""
         ...
 
     def annulla(self) -> None:
@@ -429,6 +524,7 @@ class Passi(Protocol):
 
 def carica_giorno(
     passi: Passi, giorno: date, file: Path, *, prova: bool, in_coda: bool = False,
+    motivi: dict[date, str] | None = None,
 ) -> Esito:
     """Il giorno, dall'inizio alla fine. Ritorna l'esito di quel giorno.
 
@@ -445,7 +541,16 @@ def carica_giorno(
     ``in_coda`` (solo prova): un giorno prima, in questo giro, è rimasto «da
     caricare». Il portale apre il caricamento **solo sul primo giorno non
     inserito**, quindi in prova i giorni dopo non hanno il bottone — e non è un
-    fallimento: in modalità vera si apriranno uno dopo l'altro."""
+    fallimento: in modalità vera si apriranno uno dopo l'altro.
+
+    ⚠️ **Un dialog chiuso non è un giorno caricato**: «caricato» lo dice solo la
+    riga riletta dopo «Carica», con i segni di ``giorno_gia_caricato``. Ogni
+    «non riuscito» lascia il perché in ``motivi``."""
+    def non_riuscito(motivo: str) -> Esito:
+        if motivi is not None:
+            motivi[giorno] = motivo
+        return Esito.NON_RIUSCITO
+
     riga = passi.riga(giorno)
     if riga is not None and giorno_gia_caricato(*riga):
         return Esito.GIA_CARICATO
@@ -456,16 +561,20 @@ def carica_giorno(
         # giorno (di solito manca il precedente). È un adempimento che manca,
         # non «già caricato».
         log.warning("%s: non caricato e il portale non lo apre", f"{giorno:%d/%m/%Y}")
-        return Esito.NON_RIUSCITO
+        return non_riuscito(messaggi.GIORNO_NON_APERTO)
     passi.scegli_file(file)
     if prova:
         pronto = passi.pronto()
         passi.annulla()
-        return Esito.DA_CARICARE if pronto else Esito.NON_RIUSCITO
-    if passi.conferma():
+        return Esito.DA_CARICARE if pronto else non_riuscito(messaggi.GIORNO_FILE_RIFIUTATO)
+    chiuso = passi.conferma()
+    if not chiuso:
+        passi.annulla()
+    if passi.caricato(giorno):
         return Esito.CARICATO
-    passi.annulla()
-    return Esito.NON_RIUSCITO
+    log.warning("%s: dopo «Carica» la riga non ha i segni di giorno caricato (dialog %s)",
+                f"{giorno:%d/%m/%Y}", "chiuso" if chiuso else "rimasto aperto")
+    return non_riuscito(messaggi.GIORNO_NON_CONFERMATO if chiuso else messaggi.GIORNO_DIALOG_APERTO)
 
 
 class _PassiSelenium:
@@ -476,9 +585,13 @@ class _PassiSelenium:
     Le righe si rileggono a ogni giro: dopo un upload PrimeFaces ricostruisce
     la tabella e i riferimenti presi prima sono ``stale``."""
 
-    def __init__(self, driver: WebDriver, attesa: WebDriverWait) -> None:
+    def __init__(
+        self, driver: WebDriver, attesa: WebDriverWait,
+        riapri: Callable[[], str | None] | None = None,
+    ) -> None:
         self.driver = driver
         self.attesa = attesa
+        self._riapri = riapri
 
     def riga(self, giorno: date) -> tuple[list[str], list[str], list[str]] | None:
         # Per testo della data, mai per posizione: sbagliare riga vuol dire
@@ -534,7 +647,8 @@ class _PassiSelenium:
             try:
                 carica = self.attesa.until(EC.element_to_be_clickable(_BOTTONE_CARICA))
                 self.driver.execute_script("arguments[0].click();", carica)
-                # La chiusura del dialog è la conferma: il portale non dà altro.
+                # La chiusura del dialog dice che «Carica» è partito. Se il giorno
+                # è entrato davvero lo dice la riga: ``caricato``.
                 self.attesa.until(EC.invisibility_of_element_located(_DIALOG))
                 return True
             except (
@@ -549,6 +663,25 @@ class _PassiSelenium:
                 )
                 time.sleep(1)
         return False
+
+    def caricato(self, giorno: date) -> bool:
+        def col_segno(p: PaginaMovimenti) -> bool:
+            r = p.riga(giorno)
+            return r is not None and r.caricato
+
+        if _aspetta_pagina(self.driver, col_segno, ATTESA_CONFERMA_S) is not None:
+            return True
+        # La tabella in pagina può essere rimasta vecchia: prima di dire «non
+        # riuscito» di un giorno che è entrato, la si riapre una volta dal portale.
+        if self._riapri is None:
+            return False
+        log.info("%s: segni non visti, riapro la pagina dei movimenti", f"{giorno:%d/%m/%Y}")
+        try:
+            self._riapri()
+        except WebDriverException as exc:
+            log.warning("pagina non riaperta: %s", _in_breve(exc))
+            return False
+        return col_segno(pagina(self.driver))
 
     def annulla(self) -> None:
         # Prima si toglie il file scelto (il «Annulla» del fileUpload), poi si

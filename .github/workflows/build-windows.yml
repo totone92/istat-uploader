@@ -69,6 +69,31 @@ jobs:
       - name: Costruisco IstatUploader.exe
         run: python -m PyInstaller IstatUploader.spec --noconfirm --clean
 
+      # ⚠️ SPENTO finché non c'è un certificato (gennaio 2027, con la partita IVA).
+      # Si accende con la variabile di repository FIRMA_ATTIVA=true e i due segreti
+      # FIRMA_PFX_BASE64 e FIRMA_PFX_PASSWORD: vedi BUILD_WINDOWS.md, «La firma».
+      # Sta prima delle autoverifiche, così queste provano l'.exe che esce davvero.
+      - name: Firma dell'eseguibile
+        if: ${{ vars.FIRMA_ATTIVA == 'true' }}
+        shell: pwsh
+        env:
+          FIRMA_PFX_BASE64: ${{ secrets.FIRMA_PFX_BASE64 }}
+          FIRMA_PFX_PASSWORD: ${{ secrets.FIRMA_PFX_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "firma.pfx"
+          try {
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:FIRMA_PFX_BASE64))
+            $kit = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+              Sort-Object FullName | Select-Object -Last 1
+            & $kit.FullName sign /f $pfx /p $env:FIRMA_PFX_PASSWORD /fd SHA256 `
+              /tr http://timestamp.digicert.com /td SHA256 dist\IstatUploader.exe
+            if ($LASTEXITCODE -ne 0) { throw "firma non riuscita" }
+            & $kit.FullName verify /pa dist\IstatUploader.exe
+            if ($LASTEXITCODE -ne 0) { throw "firma non valida" }
+          } finally {
+            Remove-Item $pfx -ErrorAction SilentlyContinue
+          }
+
       # L'.exe appena fatto controlla di avere tutto dentro (i moduli Selenium
       # caricati per nome, Selenium Manager, Tk). Non apre né Chrome né finestre.
       - name: Autoverifica dell'eseguibile

@@ -36,6 +36,7 @@ from uploader_turismatica.abbinamento import (
     abbina,
     raggruppa,
 )
+from uploader_turismatica.aggiornamento import NuovaVersione
 from uploader_turismatica.chrome import ChromeNonDisponibile
 from uploader_turismatica.configurazione import Configurazione, StrutturaConf
 from uploader_turismatica.esito import Esito, EsitoStruttura, riepilogo
@@ -48,7 +49,7 @@ from uploader_turismatica.piano import (
     scadenza_comunicazione,
 )
 from uploader_turismatica.riconoscimento import StrutturaTrovata
-from uploader_turismatica.sessione import Portale
+from uploader_turismatica.sessione import LetturaMesi, Portale
 from uploader_turismatica.sorgente import (
     MARCATORE_PROVA,
     MESSAGGIO_ZIP_DI_PROVA,
@@ -91,6 +92,8 @@ class Api:
         scegli_file: Callable[[], str | None] | None = None,
         apri_cartella: Callable[[Path], None] | None = None,
         rapporto_computer: Callable[[], str] | None = None,
+        cerca_versione: Callable[[], NuovaVersione | None] | None = None,
+        apri_indirizzo: Callable[[str], None] | None = None,
     ) -> None:
         self._portale = portale
         self._percorso_conf = percorso_configurazione
@@ -100,6 +103,8 @@ class Api:
         self._scegli_file = scegli_file
         self._apri_cartella = apri_cartella
         self._rapporto_computer = rapporto_computer
+        self._apri_indirizzo = apri_indirizzo
+        self._nuova_versione: NuovaVersione | None = None
 
         self._lock = threading.RLock()
         self._rev = 0
@@ -119,6 +124,9 @@ class Api:
         self._verifica: dict[str, Any] = {"in_corso": False, "testo": ""}
         if self._conf is not None:
             self._vai_principale()
+        if cerca_versione is not None:
+            threading.Thread(target=self._cerca_versione, args=(cerca_versione,),
+                             daemon=True).start()
 
     # ─── lettura dello stato (chiamata dall'interfaccia) ────────────────────
 
@@ -132,6 +140,7 @@ class Api:
                 "versione": __version__,
                 "occupato": self._lavoro is not None and self._lavoro.is_alive(),
                 "verifica": dict(self._verifica),
+                "nuova_versione": self._nuova_versione.versione if self._nuova_versione else "",
             }
 
     def _mostra(self, schermata: str, dati: dict[str, Any] | None = None) -> None:
@@ -209,6 +218,21 @@ class Api:
         self._mostra("spid", {"perche": perche, "fase": "apro"})
         portale.apri()
         self._aggiorna_dati(fase="aspetto")
+        self._aspetta_dentro(portale)
+
+    def _rientro(self, portale: Portale, titolo: str) -> Callable[[], None]:
+        """La pausa quando la sessione finisce a metà giro: Chrome resta aperto,
+        si chiede di rientrare come all'inizio e poi si riprende da dov'eravamo."""
+        def rientra() -> None:
+            self._dentro.clear()
+            self._mostra("spid", {"perche": "scaduta", "fase": "aspetto"})
+            self._aspetta_dentro(portale)
+            log.info("rientrato dopo la sessione finita")
+            self._mostra("lavoro", {"titolo": titolo, "dettaglio": "Sei rientrato: riprendo da dov'ero."})
+
+        return rientra
+
+    def _aspetta_dentro(self, portale: Portale) -> None:
         while not self._annullato.is_set():
             if self._dentro.is_set() or portale.dentro():
                 return
@@ -251,7 +275,10 @@ class Api:
                                  + " e ".join(f"{MESI[m.month - 1]}" for m in mesi),
                     "passo": i, "totale": len(trovate),
                 })
-                letti = portale.leggi_mesi(s.id_turismatica, mesi, strutture_note=note)
+                letti = portale.leggi_mesi(
+                    s.id_turismatica, mesi, strutture_note=note,
+                    rientra=self._rientro(portale, "Guardo quali giorni ci sono già"),
+                )
                 # L'intestazione dei movimenti completa ciò che l'elenco non
                 # dice (comune, tipologia, CIR, CIN). Il nome resta quello
                 # dell'elenco, se c'era: è quello che il gestore ha scelto.
@@ -525,6 +552,7 @@ class Api:
                 if v.periodo is not None or self._chiave_voce(v) in comunica]
         totale_giorni = sum(len(v.da_caricare) for v, _ in voci)
         fatti = 0
+        toccate: list[VocePiano] = []
         log.info("giro: inizio | versione=%s | modalità=%s | %s", __version__,
                  "prova" if prova else "VERA",
                  " ; ".join(f"{v.id_turismatica} {v.etichetta_mese}" for v, _ in voci))
@@ -535,6 +563,7 @@ class Api:
                     break
                 periodo = v.periodo
                 sorgente = sorgente_da(list(gruppo.per_giorno.values()), di_prova=gruppo.di_prova)
+                toccate.append(v)
 
                 def avanzamento(msg: str, v: VocePiano = v) -> None:
                     nonlocal fatti
@@ -555,12 +584,11 @@ class Api:
                     periodo=periodo, prova=prova, strutture_note=self._conf.ids(),
                     comunica=date(v.anno, v.mese, 1) if self._chiave_voce(v) in comunica else None,
                     avanzamento=avanzamento,
+                    rientra=self._rientro(portale, ("Provo" if prova else "Carico") + f" {v.nome}"),
                 )
                 esiti.append(esito)
-                if not prova:
-                    self._segna_caricati(v.id_turismatica, esito)
-                    if esito.comunicazione_riuscita:
-                        self._segna_comunicato(v.id_turismatica, v.anno, v.mese)
+            if not prova:
+                self._rileggi_e_salva(portale, toccate, esiti)
             portale.chiudi()
             mesi = sorted({v.etichetta_mese for v, _ in voci})
             testo = riepilogo(esiti, " e ".join(mesi), prova=prova)
@@ -569,11 +597,6 @@ class Api:
                 f"{e.id_turismatica}: " + (f"saltata ({e.saltata})" if e.saltata else ", ".join(
                     f"{k.value}={e.quanti(k)}" for k in Esito if e.quanti(k)))
                 for e in esiti))
-            if not prova:
-                try:
-                    configurazione.salva(self._conf, self._percorso_conf)
-                except OSError:
-                    log.exception("stato dei giorni non salvato")
             self._mostra("esito", {
                 "prova": prova,
                 "testo": testo,
@@ -585,7 +608,10 @@ class Api:
                         "da_caricare": e.quanti(Esito.DA_CARICARE),
                         "gia": e.quanti(Esito.GIA_CARICATO),
                         "non_riusciti": [f"{g:%d/%m}" for g in e.elenco(Esito.NON_RIUSCITO)],
+                        "motivi": sorted(set(e.motivi.values())),
                         "mancanti": [f"{g:%d/%m}" for g in e.elenco(Esito.FILE_MANCANTE)],
+                        "fermata": e.fermata,
+                        "non_riletto": e.stato_non_riletto,
                         "comunicazione": e.comunicazione,
                         "comunicazione_riuscita": e.comunicazione_riuscita,
                     }
@@ -593,6 +619,10 @@ class Api:
                 ],
             })
         except _Annullato:
+            # «Fermati» a metà: i giorni entrati fin qui sul portale ci restano,
+            # e lo stato salvato deve saperlo.
+            if not prova and toccate:
+                self._rileggi_e_salva(portale, toccate, esiti, con_rientro=False)
             self._torna_indietro()
         except ChromeNonDisponibile as exc:
             self._errore(str(exc))
@@ -600,21 +630,85 @@ class Api:
             portale.chiudi()
             self._pulisci_archivio()
 
-    def _segna_caricati(self, ident: str, esito: EsitoStruttura) -> None:
+    def _rileggi_e_salva(
+        self, portale: Portale, toccate: list[VocePiano], esiti: list[EsitoStruttura],
+        *, con_rientro: bool = True,
+    ) -> None:
+        """A fine giro si rilegge dal portale il mese di ogni struttura toccata:
+        ⚠️ **lo stato salvato viene da questa lettura, non dall'esito del giro.**
+        Se la lettura smentisce l'esito, ha ragione il portale. Un mese che non
+        si rilegge resta com'era: mai segnare caricato ciò che non si è visto.
+        ``con_rientro=False`` dopo «Fermati»: non si richiede SPID a chi si è fermato."""
         assert self._conf is not None
-        s = self._conf.struttura(ident)
-        if s is None:
-            return
-        for g in esito.elenco(Esito.CARICATO):
-            chiave = f"{g.year:04d}-{g.month:02d}"
-            mese = s.mesi.setdefault(chiave, StatoMese(g.year, g.month))
-            mese.giorni[g.day] = StatoGiorno.CARICATO
+        per_struttura: dict[str, set[date]] = {}
+        for v in toccate:
+            per_struttura.setdefault(v.id_turismatica, set()).add(date(v.anno, v.mese, 1))
+        for ident, mesi in per_struttura.items():
+            s = self._conf.struttura(ident)
+            if s is None:
+                continue
+            titolo = f"Rileggo {s.nome} sul portale"
+            self._mostra("lavoro", {"titolo": titolo,
+                                    "dettaglio": "Controllo che i giorni ci siano davvero."})
+            try:
+                letti = portale.leggi_mesi(
+                    ident, sorted(mesi), strutture_note=self._conf.ids(),
+                    rientra=self._rientro(portale, titolo) if con_rientro else None,
+                )
+            except _Annullato:
+                raise
+            except Exception:                   # noqa: BLE001 — l'esito del giro va comunque mostrato
+                log.exception("rilettura della struttura %s", ident)
+                letti = LetturaMesi()
+            s.mesi.update(letti.mesi)
+            s.avviso = letti.avviso
+            for e in (e for e in esiti if e.id_turismatica == ident):
+                self._confronta_con_rilettura(e, mesi, letti)
+        try:
+            configurazione.salva(self._conf, self._percorso_conf)
+        except OSError:
+            log.exception("stato dei giorni non salvato")
 
-    def _segna_comunicato(self, ident: str, anno: int, mese: int) -> None:
-        assert self._conf is not None
-        s = self._conf.struttura(ident)
-        if s is not None:
-            s.mesi.setdefault(f"{anno:04d}-{mese:02d}", StatoMese(anno, mese)).chiuso = True
+    @staticmethod
+    def _confronta_con_rilettura(
+        e: EsitoStruttura, mesi: set[date], letti: LetturaMesi,
+    ) -> None:
+        for mese in sorted(mesi):
+            stato = letti.mesi.get(f"{mese.year:04d}-{mese.month:02d}")
+            if stato is None:
+                e.stato_non_riletto = messaggi.stato_non_riletto(f"{MESI[mese.month - 1]} {mese.year}")
+                continue
+            if stato.chiuso and not stato.giorni:
+                continue                        # chiuso e giorni non letti: non si può dire
+            for g in [g for g in e.giorni if (g.year, g.month) == (mese.year, mese.month)]:
+                sul_portale = stato.giorni.get(g.day) is StatoGiorno.CARICATO
+                if e.giorni[g] is Esito.CARICATO and not sul_portale:
+                    log.warning("struttura=%s giorno=%s: esito caricato, smentito dalla rilettura",
+                                e.id_turismatica, f"{g:%d/%m/%Y}")
+                    e.segna(g, Esito.NON_RIUSCITO)
+                    e.motivi[g] = messaggi.GIORNO_SMENTITO
+                elif e.giorni[g] is Esito.NON_RIUSCITO and sul_portale:
+                    log.warning("struttura=%s giorno=%s: esito non riuscito, ma sul portale c'è",
+                                e.id_turismatica, f"{g:%d/%m/%Y}")
+                    e.segna(g, Esito.CARICATO)
+                    e.motivi.pop(g, None)
+
+    # ─── la versione nuova ──────────────────────────────────────────────────
+
+    def _cerca_versione(self, cerca: Callable[[], NuovaVersione | None]) -> None:
+        # Senza toccare ``_rev``: arriva quando vuole, e non deve ridisegnare la
+        # schermata (perderebbe ciò che il gestore sta scrivendo).
+        try:
+            trovata = cerca()
+        except Exception:                       # noqa: BLE001 — è solo un avviso
+            log.exception("controllo della versione nuova")
+            return
+        with self._lock:
+            self._nuova_versione = trovata
+
+    def apri_nuova_versione(self) -> None:
+        if self._nuova_versione is not None and self._apri_indirizzo is not None:
+            self._apri_indirizzo(self._nuova_versione.indirizzo)
 
     # ─── dettagli, registro, computer ───────────────────────────────────────
 

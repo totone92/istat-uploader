@@ -9,6 +9,7 @@ dalle funzioni vere: una firma sbagliata è un ``TypeError`` nel test.
 from __future__ import annotations
 
 import time
+import zipfile
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,8 @@ def _attese_brevi(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(portale, "ATTESA_SCHEDA_S", 0.2)
     monkeypatch.setattr(portale, "PAUSA_FRA_GIORNI_S", 0.0)
     monkeypatch.setattr(portale, "ATTESA_BOTTONE_S", 0.2)
+    monkeypatch.setattr(portale, "ATTESA_CONFERMA_S", 0.2)
+    monkeypatch.setattr(portale, "ATTESA_USCITA_S", 0.0)
     monkeypatch.setattr(sessione, "ATTESA_ELENCO_S", 3.0)
     monkeypatch.setattr(api_mod, "ATTESA_LOGIN_S", 0.01)
 
@@ -179,6 +182,164 @@ def test_un_mese_chiuso_non_si_carica(tmp_path: Path, monkeypatch: pytest.Monkey
         comunica=None, avanzamento=lambda _m: None,
     )
     assert esito.saltata is not None and "già chiuso sul portale" in esito.saltata
+
+
+# ─── in modalità vera: la conferma, il buco, la sessione che scade ──────────
+
+
+def _carica_vero(
+    s: SessioneSelenium, tmp_path: Path, giorni: list[date], *, periodo: Periodo | None = None,
+    rientra: Any = None, prova: bool = False,
+) -> Any:
+    return s.carica(
+        id_turismatica="12345", etichetta="CASA LAVANDA",
+        sorgente=sorgente_da([_file_del_giorno(tmp_path, g) for g in giorni], di_prova=False),
+        periodo=periodo or Periodo(giorni[0], giorni[-1]), prova=prova, strutture_note={"12345"},
+        comunica=None, avanzamento=lambda _m: None, rientra=rientra,
+    )
+
+
+def _ott(*giorni: int) -> list[date]:
+    return [OTTOBRE.replace(day=g) for g in giorni]
+
+
+def test_caricato_solo_se_la_riga_riletta_ha_i_segni(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = DriverFinto()
+    esito = _carica_vero(_sessione(tmp_path, driver, monkeypatch), tmp_path, _ott(1, 2, 3))
+    assert esito.elenco(Esito.CARICATO) == _ott(1, 2, 3)
+    assert driver.pressioni_carica == 3 and not esito.motivi
+
+
+def test_dialog_chiuso_ma_riga_senza_segni_e_non_riuscito_col_motivo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = DriverFinto(carica_accettato=False)
+    esito = _carica_vero(_sessione(tmp_path, driver, monkeypatch), tmp_path, _ott(1))
+    assert esito.giorni == {OTTOBRE: Esito.NON_RIUSCITO}
+    assert "non risulta caricato" in esito.motivi[OTTOBRE]
+
+
+def test_la_tabella_rimasta_vecchia_non_da_un_falso_non_riuscito(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """I segni in pagina non arrivano: prima di dire «non riuscito» si riapre."""
+    driver = DriverFinto(tabella_vecchia=True)
+    esito = _carica_vero(_sessione(tmp_path, driver, monkeypatch), tmp_path, _ott(1))
+    assert esito.giorni == {OTTOBRE: Esito.CARICATO}
+
+
+def test_al_primo_buco_ci_si_ferma_e_non_si_provano_i_giorni_dopo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = DriverFinto()
+    esito = _carica_vero(_sessione(tmp_path, driver, monkeypatch), tmp_path, _ott(1, 2, 4, 5))
+    assert esito.giorni == {_ott(1)[0]: Esito.CARICATO, _ott(2)[0]: Esito.CARICATO,
+                            _ott(3)[0]: Esito.FILE_MANCANTE}
+    assert esito.fermata == ("Manca il file del 03/10/2026: i giorni dopo restano fermi "
+                             "finché non c'è quello.")
+    assert driver.pressioni_carica == 2
+    assert not esito.elenco(Esito.NON_RIUSCITO)
+
+
+def test_il_buco_vale_anche_in_prova(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    driver = DriverFinto()
+    esito = _carica_vero(_sessione(tmp_path, driver, monkeypatch), tmp_path, _ott(1, 3), prova=True)
+    assert esito.giorni[_ott(2)[0]] is Esito.FILE_MANCANTE and _ott(3)[0] not in esito.giorni
+    assert driver.pressioni_carica == 0
+
+
+def test_il_buco_prima_del_primo_file_ferma_tutto(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sul portale fino al 2, nello zip dal 5: il periodo comincia il 5, ma il
+    primo giorno senza file è il 3."""
+    driver = DriverFinto(caricati=set(_ott(1, 2)))
+    esito = _carica_vero(_sessione(tmp_path, driver, monkeypatch), tmp_path, _ott(5, 6))
+    assert esito.giorni == {_ott(3)[0]: Esito.FILE_MANCANTE}
+    assert "03/10/2026" in esito.fermata and driver.pressioni_carica == 0
+
+
+def test_un_giorno_senza_file_ma_gia_sul_portale_non_e_un_buco(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = DriverFinto(caricati=set(_ott(2)))
+    esito = _carica_vero(_sessione(tmp_path, driver, monkeypatch), tmp_path, _ott(1, 3),
+                         periodo=Periodo(_ott(1)[0], _ott(3)[0]))
+    assert esito.giorni[_ott(2)[0]] is Esito.GIA_CARICATO and not esito.fermata
+
+
+def test_sessione_scaduta_a_meta_si_aspetta_e_si_riprende_dal_giorno(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dopo il 2° caricamento il portale butta fuori: nessun giorno fallito,
+    una pausa sola, e ogni giorno caricato una volta sola."""
+    driver = DriverFinto(scade_dopo=2)
+    pause: list[bool] = []
+
+    def rientra() -> None:
+        pause.append(True)
+        driver.rientra()
+
+    esito = _carica_vero(_sessione(tmp_path, driver, monkeypatch), tmp_path, _ott(1, 2, 3, 4),
+                         rientra=rientra)
+    assert esito.elenco(Esito.CARICATO) == _ott(1, 2, 3, 4) and not esito.motivi
+    assert pause == [True] and driver.pressioni_carica == 4
+    # si è tornati alla pagina dei movimenti dopo il rientro
+    dopo = driver.registro[driver.registro.index("rientro"):]
+    assert any("movimentoospiti" in r for r in dopo)
+
+
+def test_rientro_dichiarato_ma_non_vero_si_richiede(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = DriverFinto(scade_dopo=1)
+    pause: list[bool] = []
+
+    def rientra() -> None:
+        pause.append(True)
+        if len(pause) == 2:                 # al primo «Sono dentro» non era vero
+            driver.rientra()
+
+    esito = _carica_vero(_sessione(tmp_path, driver, monkeypatch), tmp_path, _ott(1, 2),
+                         rientra=rientra)
+    assert len(pause) == 2 and esito.elenco(Esito.CARICATO) == _ott(1, 2)
+
+
+def test_la_pausa_nel_flusso_dell_app_chiede_spid_e_riprende(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from uploader_turismatica import configurazione
+    from uploader_turismatica.configurazione import Configurazione, StrutturaConf
+
+    driver = DriverFinto(scade_dopo=1)
+    monkeypatch.setattr(sessione, "apri_chrome", lambda: driver)
+    percorso = tmp_path / "configurazione.json"
+    configurazione.salva(Configurazione(
+        strutture=[StrutturaConf("12345", "Casa Lavanda", "PERUGIA", "Affittacamere")],
+        quante="una", aggiornata_il=ORA), percorso)
+    a = Api(portale=lambda: SessioneSelenium(tmp_path / "copie", lambda: ORA),
+            percorso_configurazione=percorso, percorso_registro=None,
+            oggi=lambda: OGGI, ora=lambda: ORA)
+    z = tmp_path / "ottobre.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for g in (1, 2):
+            zf.writestr(f"schedine_istat_99001_202610{g:02d}.txt", b"Casa Lavanda".ljust(255) + b"\r\n")
+    a.imposta_prova(False, confermato=True)
+    a.usa_zip(str(z))
+    _aspetta(a, "piano")
+    a.avvia(confermato=True)
+    fine = time.monotonic() + 10
+    while a.stato()["dati"].get("perche") != "scaduta" and time.monotonic() < fine:
+        time.sleep(0.01)
+    assert a.stato()["schermata"] == "spid" and a.stato()["dati"]["perche"] == "scaduta"
+    driver.rientra()                         # entrato: si accorge da solo
+    esito = _aspetta(a, "esito", secondi=20)
+    assert esito["strutture"][0]["caricati"] == 2 and not esito["strutture"][0]["non_riusciti"]
+    a.aspetta_fine()
+    giorni = configurazione.carica(percorso).strutture[0].mesi["2026-10"].giorni  # type: ignore[union-attr]
+    assert giorni[1] is StatoGiorno.CARICATO and giorni[2] is StatoGiorno.CARICATO
 
 
 # ─── il flusso dell'app sopra la sessione vera ───────────────────────────────

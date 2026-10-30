@@ -66,6 +66,33 @@ Windows non lo conosce e prova a fermarlo. È normale.
 
 ---
 
+## La firma (spenta fino al certificato)
+
+Il giro di GitHub ha già il passo «Firma dell'eseguibile», **spento**. Non è mai
+stato eseguito: va provato al primo certificato, con un giro a mano (Actions →
+«Build Windows» → Run workflow) prima di un tag. Cosa servirà, da gennaio 2027:
+
+1. **La partita IVA** e il **certificato di firma del codice** intestato a
+   quell'attività, comprato da un'autorità riconosciuta da Windows.
+2. **Attenzione a come arriva.** Le regole delle autorità, dal giugno 2023,
+   vogliono la chiave su un dispositivo o in un servizio cloud, non in un file:
+   il passo com'è scritto (`signtool` con un `.pfx`) funziona solo se
+   l'autorità consegna un `.pfx`. Con un servizio cloud (quelli dei venditori, o
+   Azure Artifact Signing) le righe di `signtool` vanno sostituite con il loro
+   comando, e i segreti con le loro credenziali. Conviene deciderlo **prima**
+   di comprare: serve un certificato che si possa usare da un giro di GitHub, senza
+   una chiavetta fisica attaccata a un PC.
+3. Su GitHub (Settings → Secrets and variables → Actions):
+   - segreti `FIRMA_PFX_BASE64` (il `.pfx` in base64) e `FIRMA_PFX_PASSWORD`;
+   - variabile `FIRMA_ATTIVA` = `true`. È l'interruttore: senza, il passo si salta.
+
+Il passo firma con marca temporale (la firma resta valida anche dopo la scadenza
+del certificato) e controlla il risultato con `signtool verify`: se la firma non
+riesce, il giro si ferma e non esce nessun `.exe`.
+
+La firma toglie «autore sconosciuto», ma **non** fa sparire SmartScreen subito: la
+reputazione si costruisce con i download, e all'inizio l'avviso può restare.
+
 ## Come funziona, in breve
 
 1. **Primo avvio → «Collega Turismatica».** Si apre Chrome sul portale: entri

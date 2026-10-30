@@ -85,6 +85,17 @@ giorni del mese risultano caricati, e solo in modalità vera con la conferma.
 
 ## Domande che vengono a tutti
 
+**Il programma dice «Manca il file del…» e si ferma.** Il portale apre i giorni
+in fila: senza quel giorno, quelli dopo non si possono caricare. Riscarica il file
+dal gestionale e rilancia con lo zip completo: quelli già caricati li salta.
+
+**A metà giro dice «Il portale ti ha fatto uscire».** La sessione di Turismatica è
+scaduta. Rientra con SPID o CIE nella finestra di Chrome: il programma riprende dal
+giorno dove era, senza perdere niente.
+
+**Compare una fascia «C'è una versione nuova».** È solo un avviso: il link apre la
+pagina da cui scaricarla, quando vuoi. Il programma non scarica niente da solo.
+
 **Posso rilanciarlo sullo stesso mese?**
 Sì. I giorni già caricati li salta, sempre. Non carica niente due volte.
 

@@ -31,7 +31,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from uploader_turismatica import __version__, configurazione, registro
+from uploader_turismatica import __version__, aggiornamento, configurazione, registro
 from uploader_turismatica.api import Api
 from uploader_turismatica.sessione import SessioneSelenium
 
@@ -123,6 +123,11 @@ def apri_cartella(cartella: Path) -> None:
             subprocess.Popen(["xdg-open", str(cartella)])
 
 
+def _apri_nel_browser(indirizzo: str) -> None:
+    with contextlib.suppress(Exception):
+        webbrowser.open(indirizzo)
+
+
 def _controlla_motore(esito: dict[str, Any]) -> Callable[[str], bool]:
     def al_via(renderer: str) -> bool:
         esito["renderer"] = renderer
@@ -180,6 +185,8 @@ def _crea_api(percorso_registro: Path | None, finestra_ref: dict[str, Any]) -> A
         scegli_file=scegli_file,
         apri_cartella=apri_cartella,
         rapporto_computer=rapporto,
+        cerca_versione=aggiornamento.cerca,
+        apri_indirizzo=_apri_nel_browser,
     )
 
 

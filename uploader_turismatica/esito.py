@@ -55,6 +55,13 @@ class EsitoStruttura:
     #: Il nome del file usato per ogni giorno toccato: in prova è la risposta
     #: a «cosa avresti caricato?», e il nome è anche ciò che dichiara la data.
     file: dict[date, str] = field(default_factory=dict)
+    #: Perché un giorno è «non riuscito», in parole da gestore.
+    motivi: dict[date, str] = field(default_factory=dict)
+    #: Il giro di questa struttura si è fermato a un buco nei file: la frase da
+    #: dire. I giorni dopo non hanno un esito: non sono stati provati.
+    fermata: str = ""
+    #: Il problema della rilettura a fine giro ('' = riletto tutto).
+    stato_non_riletto: str = ""
     #: La comunicazione telematica mensile, se chiesta: la frase per il
     #: gestore ('' = non chiesta) e se è andata.
     comunicazione: str = ""
@@ -73,7 +80,7 @@ class EsitoStruttura:
 
     @property
     def tutto_a_posto(self) -> bool:
-        return self.saltata is None and not (
+        return self.saltata is None and not self.stato_non_riletto and not (
             self.quanti(Esito.NON_RIUSCITO) or self.quanti(Esito.FILE_MANCANTE)
         ) and (not self.comunicazione or self.comunicazione_riuscita)
 
@@ -133,7 +140,8 @@ def riepilogo(
 
         mancanti = e.elenco(Esito.FILE_MANCANTE)
         if mancanti:
-            righe.append(f"   · manca il file di: {_giorni(mancanti)}")
+            righe.append(f"   · {e.fermata}" if e.fermata
+                         else f"   · manca il file di: {_giorni(mancanti)}")
             da_fare.append(
                 f"{e.etichetta}: riscarica dal tuo gestionale i giorni mancanti "
                 f"({_giorni(mancanti)}) e rilancia."
@@ -141,10 +149,18 @@ def riepilogo(
         falliti = e.elenco(Esito.NON_RIUSCITO)
         if falliti:
             righe.append(f"   · NON caricati: {_giorni(falliti)}")
+            per_motivo: dict[str, list[date]] = {}
+            for g in falliti:
+                if g in e.motivi:
+                    per_motivo.setdefault(e.motivi[g], []).append(g)
+            righe.extend(f"     {_giorni(gg)}: {m}" for m, gg in per_motivo.items())
             da_fare.append(
                 f"{e.etichetta}: riprova per {_giorni(falliti)}. Se non passa "
                 "nemmeno al secondo giro, caricali a mano dal portale."
             )
+        if e.stato_non_riletto:
+            righe.append(f"   · {e.stato_non_riletto}")
+            da_fare.append(f"{e.etichetta}: {e.stato_non_riletto}")
         if e.comunicazione:
             righe.append(f"   · {e.comunicazione}")
             if not e.comunicazione_riuscita:

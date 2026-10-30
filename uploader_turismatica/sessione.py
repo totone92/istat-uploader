@@ -31,11 +31,13 @@ from uploader_turismatica.piano import StatoMese, stato_dalle_righe
 from uploader_turismatica.portale import (
     PREHOME_URL,
     Copie,
+    Rientro,
     apri_movimenti,
     apri_portale,
     carica_struttura,
     leggi_mese,
     pagina,
+    rientra_se_uscito,
     sembra_dentro,
 )
 from uploader_turismatica.riconoscimento import StrutturaTrovata
@@ -71,11 +73,13 @@ class Portale(Protocol):
     def leggi_strutture(self) -> LetturaStrutture: ...
     def leggi_mesi(
         self, id_turismatica: str, mesi: Sequence[date], *, strutture_note: Collection[str],
+        rientra: Rientro | None = None,
     ) -> LetturaMesi: ...
     def carica(
         self, *, id_turismatica: str, etichetta: str, sorgente: Sorgente,
         periodo: Periodo | None, prova: bool, strutture_note: Collection[str],
         comunica: date | None, avanzamento: Callable[[str], None],
+        rientra: Rientro | None = None,
     ) -> EsitoStruttura: ...
     def chiudi(self) -> None: ...
 
@@ -140,6 +144,15 @@ class SessioneSelenium:
 
     def leggi_mesi(
         self, id_turismatica: str, mesi: Sequence[date], *, strutture_note: Collection[str],
+        rientra: Rientro | None = None,
+    ) -> LetturaMesi:
+        while True:
+            letti = self._leggi_mesi(id_turismatica, mesi, strutture_note=strutture_note)
+            if not rientra_se_uscito(self.driver, rientra):
+                return letti
+
+    def _leggi_mesi(
+        self, id_turismatica: str, mesi: Sequence[date], *, strutture_note: Collection[str],
     ) -> LetturaMesi:
         out = LetturaMesi()
         problema = apri_movimenti(
@@ -173,12 +186,13 @@ class SessioneSelenium:
         self, *, id_turismatica: str, etichetta: str, sorgente: Sorgente,
         periodo: Periodo | None, prova: bool, strutture_note: Collection[str],
         comunica: date | None, avanzamento: Callable[[str], None],
+        rientra: Rientro | None = None,
     ) -> EsitoStruttura:
         return carica_struttura(
             self.driver, id_turismatica=id_turismatica, etichetta=etichetta,
             sorgente=sorgente, periodo=periodo, prova=prova,
             strutture_note=strutture_note, comunica=comunica, avanzamento=avanzamento,
-            copie=self._copie,
+            copie=self._copie, rientra=rientra,
         )
 
     def chiudi(self) -> None:

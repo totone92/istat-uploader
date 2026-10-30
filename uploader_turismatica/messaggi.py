@@ -7,6 +7,7 @@ gestore vede il portale, non il codice. Il dettaglio tecnico va nel registro.
 from __future__ import annotations
 
 from collections.abc import Collection
+from datetime import date
 
 
 def struttura_non_tua(id_turismatica: str) -> str:
@@ -21,6 +22,38 @@ def uscito_dal_portale() -> str:
     return (
         "Il portale ti ha fatto uscire (la sessione è scaduta). Riprova: ti "
         "chiederò di entrare di nuovo con SPID o CIE."
+    )
+
+
+def file_mancante_fermo(giorno: date) -> str:
+    return (
+        f"Manca il file del {giorno:%d/%m/%Y}: i giorni dopo restano fermi "
+        "finché non c'è quello."
+    )
+
+
+GIORNO_NON_APERTO = (
+    "il portale non apre questo giorno (di solito manca ancora quello prima)."
+)
+GIORNO_FILE_RIFIUTATO = "il portale non ha accettato il file scelto."
+GIORNO_DIALOG_APERTO = (
+    "ho premuto «Carica» ma il portale non ha chiuso la finestra, e il giorno non "
+    "risulta caricato."
+)
+GIORNO_NON_CONFERMATO = (
+    "ho premuto «Carica» e la finestra si è chiusa, ma riletta la riga il giorno "
+    "non risulta caricato."
+)
+GIORNO_SMENTITO = (
+    "riletto il mese a fine giro, sul portale questo giorno non risulta caricato."
+)
+GIORNO_ERRORE = "il portale ha dato un errore su questo giorno (il dettaglio è nel registro)."
+
+
+def stato_non_riletto(mese: str) -> str:
+    return (
+        f"non sono riuscito a rileggere {mese} a fine giro: lo stato salvato non è "
+        "aggiornato. Usa «Aggiorna le mie strutture» per rivederlo."
     )
 
 
@@ -103,7 +136,7 @@ def nessun_file_istat(nome: str) -> str:
 
 #: Cosa scrive il portale quando la sessione non c'è più o la pagina non è per
 #: te. In minuscolo: si confronta col testo visibile della pagina.
-_SEGNI_USCITA = ("accedi con spid", "entra con spid", "sessione scaduta",
+SEGNI_USCITA = ("accedi con spid", "entra con spid", "sessione scaduta",
                  "sessione è scaduta")
 _SEGNI_NEGATO = (
     "non autorizzat", "accesso negato", "non abilitat", "non hai i permessi",
@@ -131,6 +164,6 @@ def perche_movimenti_non_aperti(
         return struttura_non_tua(id_turismatica)
     if any(s in testo for s in _SEGNI_NEGATO):
         return struttura_non_tua(id_turismatica)
-    if any(s in url.lower() for s in _URL_USCITA) or any(s in testo for s in _SEGNI_USCITA):
+    if any(s in url.lower() for s in _URL_USCITA) or any(s in testo for s in SEGNI_USCITA):
         return uscito_dal_portale()
     return movimenti_non_aperti(id_turismatica)

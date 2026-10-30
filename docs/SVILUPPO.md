@@ -41,6 +41,29 @@ personale scritta `~`.
 
 ---
 
+## v1.4.0 — il giro vero si controlla da solo (30/10/2026)
+
+Preparata per il primo giro vero di novembre.
+
+- **Conferma vera** (`carica_giorno`, `Passi.caricato`): un dialog chiuso non è un
+  giorno caricato. Dopo «Carica» si rilegge la riga e si pretendono i segni di
+  `giorno_gia_caricato`, aspettando `ATTESA_CONFERMA_S` e riaprendo una volta la
+  pagina prima di dire «non riuscito». Ogni non riuscito ha il motivo.
+- **Rilettura a fine giro** (`Api._rileggi_e_salva`): lo stato salvato viene dalla
+  lettura del portale, non dall'esito; se la smentisce, ha ragione il portale. Vale
+  anche dopo «Fermati». Un mese che non si rilegge resta com'era e lo si dice.
+- **Buco nello zip** (`_carica_giorni`, `_primo_buco`): il portale apre i giorni in
+  fila, quindi ci si ferma al primo senza file, anche se è prima del periodo. Via
+  `ContatoreMancanti`: tre buchi di fila non erano la regola del portale.
+- **Sessione scaduta** (`sessione_scaduta`, `rientra_se_uscito`): indirizzo fuori da
+  `/private/` o scritte del login. Pausa senza scadenza, poi si riapre la pagina
+  e si riprende dallo stesso giorno. Vale anche nelle letture. Rifare un giorno è
+  sicuro: `carica_giorno` rilegge la riga e non ricarica ciò che è già dentro.
+  ⚠️ Com'è fatto il ritorno al login sul portale vero **non l'abbiamo visto**: il
+  riconoscimento è provato col login finto dei test.
+- **Versione nuova** (`aggiornamento.py`): legge l'ultima Release, solo avviso.
+- **Firma**: il passo c'è, spento (`BUILD_WINDOWS.md`, «La firma»).
+
 ## v1.3.2 — la tabella vista da Chrome (21/10/2026)
 
 Sul PC di Marco la v1.3.1 ha letto e confermato le 8 strutture, poi per **ognuna**:
@@ -401,7 +424,7 @@ provare senza portale e senza schermo, e in questo progetto è quasi tutto.
 La **meccanica del portale**, che è costata prove sul campo, è portata com'era —
 non riscritta: riga per data, dialog PrimeFaces aperto via `PrimeFaces.ab`,
 campo file nascosto reso visibile prima di scriverci, **tre tentativi** sul
-bottone «Carica», lettura dello stato `VALIDATA`/`CESSATA`, **tre file mancanti
+bottone «Carica», lettura dello stato `VALIDATA`/`CESSATA`, **(fino alla v1.3.2) tre file mancanti
 di fila** fermano la struttura, verifica che la tabella apra sul mese giusto.
 
 > ⚠️ **Non semplificarli senza riprovare dal vivo.** Non sono scelte di stile:

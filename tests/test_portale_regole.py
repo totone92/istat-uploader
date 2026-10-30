@@ -10,8 +10,6 @@ from __future__ import annotations
 from datetime import date
 
 from uploader_turismatica.portale import (
-    MANCANTI_DI_FILA,
-    ContatoreMancanti,
     stato_utilizzabile,
     tabella_sul_mese_giusto,
 )
@@ -45,28 +43,6 @@ def test_data_non_leggibile_non_blocca() -> None:
     """L'accoppiamento vero avviene per testo della data riga per riga: questo
     controllo è una rete, non il meccanismo."""
     assert tabella_sul_mese_giusto(None, date(2026, 9, 1))
-
-
-def test_tre_mancanti_di_fila_fermano_la_struttura() -> None:
-    """Tre buchi consecutivi non sono tre giorni senza movimento — quelli il
-    file ce l'hanno lo stesso — ma la cartella sbagliata o un download
-    interrotto."""
-    c = ContatoreMancanti()
-    assert not c.manca()
-    assert not c.manca()
-    assert c.manca()
-    assert MANCANTI_DI_FILA == 3
-
-
-def test_un_file_trovato_azzera_il_contatore() -> None:
-    """Due buchi sparsi in un mese non fermano niente: è *di fila* che conta."""
-    c = ContatoreMancanti()
-    c.manca()
-    c.manca()
-    c.trovato()
-    assert not c.manca()
-    assert not c.manca()
-    assert c.manca()
 
 
 # ─── «già caricato»: dalla tabella, non dal pulsante ─────────────────────────

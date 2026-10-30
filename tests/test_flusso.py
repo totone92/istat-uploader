@@ -42,6 +42,10 @@ class PortaleFinto:
         self.avvisi = avvisi or {}
         self.chiamate: list[str] = []
         self.caricamenti: list[dict[str, Any]] = []
+        #: La rilettura sul portale mostra solo ciò che il portale ha.
+        self.non_entrano: set[int] = set()
+        self.chiusi = False
+        self.rilettura_rotta = False
 
     def apri(self) -> None:
         self.chiamate.append("apri")
@@ -56,20 +60,23 @@ class PortaleFinto:
         return LetturaStrutture(list(self.strutture))
 
     def leggi_mesi(self, id_turismatica: str, mesi: Sequence[date], *,
-                   strutture_note: Collection[str]) -> LetturaMesi:
+                   strutture_note: Collection[str], rientra: Callable[[], None] | None = None) -> LetturaMesi:
         self.chiamate.append(f"leggi_mesi:{id_turismatica}")
+        if self.rilettura_rotta and self.caricamenti:
+            return LetturaMesi({}, "Il portale non ha aperto la pagina.")
         if id_turismatica in self.avvisi:
             return LetturaMesi({}, self.avvisi[id_turismatica])
         settembre = StatoMese(2026, 9, {
             g: StatoGiorno.CARICATO if g in self.caricati else StatoGiorno.DA_FARE
-            for g in range(1, 31)}, ORA)
+            for g in range(1, 31)}, ORA, chiuso=self.chiusi)
         testata = StrutturaTrovata(id_turismatica, "NOME DALL'INTESTAZIONE", "PERUGIA",
                                    "Affittacamere", "VALIDATA", cin=self.cin.get(id_turismatica, ""))
         return LetturaMesi({"2026-09": settembre}, struttura=testata)
 
     def carica(self, *, id_turismatica: str, etichetta: str, sorgente: Sorgente,
                periodo: Periodo | None, prova: bool, strutture_note: Collection[str],
-               comunica: date | None, avanzamento: Callable[[str], None]) -> EsitoStruttura:
+               comunica: date | None, avanzamento: Callable[[str], None],
+               rientra: Callable[[], None] | None = None) -> EsitoStruttura:
         self.caricamenti.append({
             "id": id_turismatica, "periodo": (periodo.dal, periodo.al) if periodo else None,
             "prova": prova, "di_prova": sorgente.di_prova, "comunica": comunica,
@@ -78,12 +85,15 @@ class PortaleFinto:
         if comunica is not None:
             e.comunicazione_riuscita = True
             e.comunicazione = "pronta" if prova else "inviata"
+            self.chiusi = not prova
         for g in (periodo.giorni if periodo else []):
             avanzamento(f"{g:%d/%m/%Y}")
             if g.day in self.caricati:
                 e.segna(g, Esito.GIA_CARICATO)
             else:
                 e.segna(g, Esito.DA_CARICARE if prova else Esito.CARICATO)
+                if not prova and g.day not in self.non_entrano:
+                    self.caricati.add(g.day)
         return e
 
     def chiudi(self) -> None:
@@ -417,3 +427,56 @@ def test_torna_premuto_subito_dopo_l_esito_non_va_perso(tmp_path: Path) -> None:
     assert a.stato()["occupato"]          # il giro sta ancora chiudendo
     a.torna_alla_principale()
     assert a.stato()["schermata"] == "principale"
+
+
+# ─── lo stato salvato viene dalla rilettura del portale ─────────────────────
+
+
+def _giro_vero(tmp_path: Path, portale: PortaleFinto) -> tuple[Api, dict[str, Any]]:
+    a = _collega(tmp_path, portale)
+    a.imposta_prova(False, confermato=True)
+    a.usa_zip(str(_zip(tmp_path, "Casa Lavanda", "99001", range(1, 31))))
+    _aspetta(a, "piano")
+    a.avvia(confermato=True)
+    return a, _aspetta(a, "esito")
+
+
+def _salvati(tmp_path: Path) -> dict[str, str]:
+    salvata = json.loads((tmp_path / "configurazione.json").read_text(encoding="utf-8"))
+    return salvata["strutture"][0]["mesi"]["2026-09"]["giorni"]
+
+
+def test_a_fine_giro_si_rilegge_il_mese_e_il_portale_ha_ragione(tmp_path: Path) -> None:
+    """Il giro dice caricato il 19, il portale riletto no: non riuscito col
+    motivo, e nella configurazione resta da fare."""
+    portale = PortaleFinto(DUE, caricati_settembre=set(range(1, 31)) - {12, 19})
+    portale.non_entrano = {19}
+    _, esito = _giro_vero(tmp_path, portale)
+    s = esito["strutture"][0]
+    assert s["caricati"] == 1 and s["non_riusciti"] == ["19/09"]
+    assert any("non risulta caricato" in m for m in s["motivi"])
+    assert "non risulta caricato" in esito["testo"]
+    assert portale.chiamate.count("leggi_mesi:12345") == 2      # la lettura iniziale e la rilettura
+    giorni = _salvati(tmp_path)
+    assert giorni["12"] == "caricato" and giorni["19"] == "da_fare"
+
+
+def test_se_la_rilettura_non_riesce_lo_stato_non_inventa_niente(tmp_path: Path) -> None:
+    portale = PortaleFinto(DUE, caricati_settembre=set(range(1, 31)) - {12, 19})
+    portale.rilettura_rotta = True
+    _, esito = _giro_vero(tmp_path, portale)
+    assert "non sono riuscito a rileggere settembre 2026" in esito["strutture"][0]["non_riletto"]
+    assert "Tutto a posto" not in esito["testo"]
+    assert _salvati(tmp_path)["12"] == "da_fare"
+
+
+def test_in_prova_non_si_rilegge_e_non_si_salva(tmp_path: Path) -> None:
+    portale = PortaleFinto(DUE, caricati_settembre=set(range(1, 31)) - {12})
+    a = _collega(tmp_path, portale)
+    prima = (tmp_path / "configurazione.json").read_text(encoding="utf-8")
+    a.usa_zip(str(_zip(tmp_path, "Casa Lavanda", "99001", range(1, 31))))
+    _aspetta(a, "piano")
+    a.avvia()
+    _aspetta(a, "esito")
+    assert portale.chiamate.count("leggi_mesi:12345") == 1
+    assert (tmp_path / "configurazione.json").read_text(encoding="utf-8") == prima

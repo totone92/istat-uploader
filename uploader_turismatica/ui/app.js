@@ -38,6 +38,7 @@ async function ciclo() {
   try {
     const s = await api.stato();
     window.__ui_pronto = true;
+    disegnaNuovaVersione(s.nuova_versione);
     if (s.rev !== ultimaRev || (stato && s.prova !== stato.prova)) {
       ultimaRev = s.rev;
       stato = s;
@@ -67,7 +68,7 @@ function disegnaCornice() {
   const pillola = document.getElementById("pillola");
   const fascia = document.getElementById("fascia");
   const configurata = !["benvenuto", "spid", "quante", "manuale", "riepilogo"].includes(stato.schermata)
-    || (stato.schermata === "spid" && stato.dati.perche === "carica");
+    || (stato.schermata === "spid" && ["carica", "scaduta"].includes(stato.dati.perche));
   pillola.hidden = !configurata;
   pillola.className = `pillola ${stato.prova ? "prova" : "vera"}`;
   pillola.textContent = stato.prova ? "Modalità prova" : "Modalità vera";
@@ -80,6 +81,16 @@ function disegnaCornice() {
        ${libero ? '<button class="bottone piccolo" data-azione="passa-vera">Passa alla modalità vera…</button>' : ""}`
     : `<span>Modalità vera — carico davvero sul portale.</span>
        ${libero ? '<button class="bottone piccolo" data-azione="torna-prova">Torna alla modalità prova</button>' : ""}`;
+}
+
+/* Fuori dal ridisegno: l'avviso può arrivare in qualunque momento, e non deve
+ * togliere al gestore ciò che sta scrivendo. */
+function disegnaNuovaVersione(versione) {
+  const avviso = document.getElementById("nuova-versione");
+  if (!versione || !avviso.hidden) return;
+  avviso.innerHTML = `<span>C'è una versione nuova (${esc(versione)}).</span>
+    <a href="#" data-azione="apri-nuova-versione">Vai alla pagina per scaricarla</a>`;
+  avviso.hidden = false;
 }
 
 /* ─── schermate ───────────────────────────────────────────────────── */
@@ -111,6 +122,20 @@ const SCHERMATE = {
       return `<section class="scheda centrato"><span class="rotella"></span>
         <h2 style="margin-top:18px">Apro Chrome sul portale…</h2>
         <p class="intro">La prima volta può volerci qualche secondo in più.</p></section>`;
+    }
+    if (d.perche === "scaduta") {
+      return `
+      <section class="scheda centrato">
+        <div class="icona-grande">🔑</div>
+        <h1>Il portale ti ha fatto uscire</h1>
+        <p class="intro">La sessione di Turismatica è scaduta e ho messo in pausa il giro: non ho perso niente.
+          Vai sulla finestra di Chrome ed entra di nuovo con SPID o CIE. Prenditi il tempo che ti serve:
+          non c'è nessuna scadenza. Appena sei dentro riprendo dal giorno dove ero.</p>
+        <div class="riga-bottoni" style="justify-content:center">
+          <button class="bottone primario grande" data-azione="sono-dentro">Sono dentro: riprendi</button>
+          <button class="bottone fantasma" data-azione="annulla">Fermati</button>
+        </div>
+      </section>`;
     }
     const cosa = d.perche === "carica"
       ? "Appena sei dentro comincio, giorno per giorno."
@@ -310,9 +335,11 @@ const SCHERMATE = {
         <div class="testo-voce"><strong style="color:var(--testo)">${esc(s.nome)}</strong><br>
           ${s.saltata ? `<span style="color:var(--errore)">${esc(s.saltata)}</span>` : ""}
           ${s.non_riusciti.length ? `<span style="color:var(--errore)">Non riusciti: ${esc(s.non_riusciti.join(", "))}</span><br>` : ""}
-          ${s.mancanti.length ? `Manca il file di: ${esc(s.mancanti.join(", "))}` : ""}
+          ${s.motivi.map((m) => `<span class="piccolo-testo">${esc(m)}</span><br>`).join("")}
+          ${s.fermata ? esc(s.fermata) : s.mancanti.length ? `Manca il file di: ${esc(s.mancanti.join(", "))}` : ""}
+          ${s.non_riletto ? `<br><span style="color:var(--errore)">${esc(s.non_riletto)}</span>` : ""}
           ${s.comunicazione ? `<br><span style="color:var(${s.comunicazione_riuscita ? "--ok" : "--errore"})">Comunicazione mensile: ${esc(s.comunicazione)}</span>` : ""}
-          ${!s.saltata && !s.non_riusciti.length && !s.mancanti.length && !s.comunicazione ? "Tutto a posto." : ""}</div>
+          ${!s.saltata && !s.non_riusciti.length && !s.mancanti.length && !s.comunicazione && !s.non_riletto ? "Tutto a posto." : ""}</div>
       </div>`).join("");
     return `
       <section>
@@ -409,6 +436,7 @@ function disegna() {
 const AZIONI = {
   "collega": () => chiama("collega"),
   "sono-dentro": () => api.sono_dentro(),
+  "apri-nuova-versione": () => api.apri_nuova_versione(),
   "annulla": () => api.annulla(),
   "rispondi-quante": () => {
     const scelta = document.querySelector('input[name="quante"]:checked');
