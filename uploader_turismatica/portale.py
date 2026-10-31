@@ -22,10 +22,9 @@ Il portale vero (pagine di ottobre 2026, in ``tests/fixtures/turismatica/``):
 cosa si **legge** sta in ``pagina_movimenti`` (Python, provato sulle copie);
 qui restano i clic — per id, con l'id trovato da quella lettura.
 
-* l'elenco delle strutture è in ``prehome.xhtml``; per entrare in una si va
-  diretti a ``movimentoospiti.xhtml?idStruttura=…`` e, se il portale apre
-  un'altra struttura o nessuna tabella, si passa da ``prehome`` come il
-  gestore (tendina, «Accedi»): ``apri_movimenti``;
+* l'elenco delle strutture è in ``prehome.xhtml``; per entrare in una si passa
+  sempre di lì come il gestore (tendina, «Accedi»): l'indirizzo diretto da
+  fuori dà una pagina d'errore (``apri_movimenti``);
 * i mesi: le frecce si muovono solo fra i mesi **aperti**; un mese prima di
   quelli è nel «periodo chiuso» e si legge da quella scheda (``leggi_mese``);
 * la comunicazione mensile è l'ultimo passo, solo se chiesta
@@ -118,6 +117,7 @@ PAUSA_FRA_GIORNI_S = 0.5
 #: Quanto aspettare che una pagina del portale mostri ciò che serve (la
 #: tabella, il mese nuovo) e che una scheda dinamica arrivi. Secondi.
 ATTESA_PAGINA_S = 15.0
+ATTESA_TENDINA_S = 10.0
 ATTESA_SCHEDA_S = 10.0
 #: Quanto aspettare che il bottone «carica da FILE» compaia sulla riga del
 #: giorno, dopo il caricamento del giorno prima.
@@ -357,7 +357,7 @@ def carica_struttura(
     return esito
 
 
-def _apri_mese(
+def apri_mese(
     driver: WebDriver, id_turismatica: str, mese: date, *, strutture_note: Collection[str],
     copie: Copie | None,
 ) -> str | None:
@@ -395,7 +395,7 @@ def _carica_giorni(
     dillo: Callable[[str], None], copie: Copie | None, rientra: Rientro | None,
 ) -> None:
     def apri() -> str | None:
-        return _apri_mese(driver, id_turismatica, periodo.dal,
+        return apri_mese(driver, id_turismatica, periodo.dal,
                           strutture_note=strutture_note, copie=copie)
 
     def fermati_al_buco(giorno: date) -> None:
@@ -421,7 +421,7 @@ def _carica_giorni(
         return
 
     attesa = WebDriverWait(driver, 30)
-    passi = _PassiSelenium(driver, attesa, riapri=apri)
+    passi = PassiSelenium(driver, attesa, riapri=apri)
 
     def ripresa_dopo_uscita() -> bool:
         """``True`` se c'è stata una pausa e la pagina è di nuovo aperta."""
@@ -493,7 +493,7 @@ class Passi(Protocol):
     sequenza, e soprattutto **se l'ultimo passo si fa**) da *come lo si fa sul
     portale* (selettori, ``PrimeFaces.ab``, il campo nascosto). La sequenza è
     nostra e si prova con un finto di **questa** interfaccia; il «come» resta
-    in ``_PassiSelenium`` e si prova solo dal vivo — un finto browser
+    in ``PassiSelenium`` e si prova solo dal vivo — un finto browser
     riprodurrebbe ciò che abbiamo capito del portale, non il portale."""
 
     def riga(self, giorno: date) -> tuple[list[str], list[str], list[str]] | None: ...
@@ -577,7 +577,7 @@ def carica_giorno(
     return non_riuscito(messaggi.GIORNO_NON_CONFERMATO if chiuso else messaggi.GIORNO_DIALOG_APERTO)
 
 
-class _PassiSelenium:
+class PassiSelenium:
     """I passi sul portale vero. ⚠️ **La meccanica è quella dello script
     originale, spostata e non riscritta**: non semplificarla senza riprovare
     dal vivo.
@@ -733,7 +733,7 @@ _JS_SCEGLI_STRUTTURA = r"""
 const id = arguments[0];
 const sel = [...document.querySelectorAll('select[id$="_input"]')]
   .find(s => [...s.options].some(o => o.value === id));
-if (!sel) return 'assente';
+if (!sel) return document.querySelector('select[id$="_input"]') ? 'assente' : 'senza-elenco';
 const menu = sel.id.slice(0, -'_input'.length);
 let fatto = false;
 if (window.PrimeFaces && PrimeFaces.widgets) {
@@ -751,12 +751,23 @@ return 'ok';
 """
 
 
+def _scegli_struttura(driver: WebDriver, id_turismatica: str) -> str:
+    """Appena aperta, ``prehome`` può non avere ancora la tendina: la si aspetta,
+    ma non su una pagina diversa (sessione scaduta: lì ci pensa chi chiama)."""
+    fine = time.monotonic() + ATTESA_TENDINA_S
+    while True:
+        esito = str(driver.execute_script(_JS_SCEGLI_STRUTTURA, id_turismatica))
+        if esito != "senza-elenco" or "prehome" not in _url(driver) or time.monotonic() >= fine:
+            return esito
+        time.sleep(0.5)
+
+
 def _entra_da_prehome(driver: WebDriver, id_turismatica: str) -> bool:
     """Entra nella struttura dalla pagina di scelta, come farebbe il gestore.
     ``True`` se dopo si è sulla sua pagina dei movimenti."""
     driver.get(PREHOME_URL)
     try:
-        esito = driver.execute_script(_JS_SCEGLI_STRUTTURA, id_turismatica)
+        esito = _scegli_struttura(driver, id_turismatica)
     except WebDriverException as exc:
         log.warning("scelta della struttura in prehome non riuscita: %s", _in_breve(exc))
         return False
@@ -766,13 +777,16 @@ def _entra_da_prehome(driver: WebDriver, id_turismatica: str) -> bool:
     with contextlib.suppress(TimeoutException, WebDriverException):
         WebDriverWait(driver, 20).until(lambda d: "prehome" not in (d.current_url or ""))
     log.info("dopo «Accedi»: %s", riconoscimento.ripulisci_indirizzo(_url(driver)))
-    # Sempre, anche se l'indirizzo dice già «movimentoospiti»: dopo «Accedi» il
-    # portale può atterrare su una sua home, e la struttura scelta è ormai
-    # quella della sessione. L'indirizzo diretto è ciò che si vuole aprire.
+
+    def pronta(p: PaginaMovimenti) -> bool:
+        return bool(p.righe) and _sulla_struttura(p, id_turismatica) is not False
+
+    if "movimentoospiti" in _url(driver) and _aspetta_pagina(driver, pronta, ATTESA_PAGINA_S) is not None:
+        return True
+    # Il portale può atterrare su una sua home: la struttura scelta è ormai quella della
+    # sessione, e solo adesso l'indirizzo dei movimenti è buono. Da fuori dà «Error».
     driver.get(MOVIMENTI_URL.format(id_turismatica))
-    return _aspetta_pagina(
-        driver, lambda p: bool(p.righe) and _sulla_struttura(p, id_turismatica) is not False, ATTESA_PAGINA_S,
-    ) is not None
+    return _aspetta_pagina(driver, pronta, ATTESA_PAGINA_S) is not None
 
 
 def apri_movimenti(
@@ -782,31 +796,13 @@ def apri_movimenti(
     """Apre la pagina dei movimenti della struttura. ``None`` se è pronta;
     altrimenti il messaggio per il gestore (cosa è successo e cosa fare).
 
-    Prima l'indirizzo diretto (``?idStruttura=…``). Se la pagina che si apre
-    è di **un'altra** struttura — il portale potrebbe ricordare quella scelta in
-    ``prehome`` invece di seguire l'indirizzo — si passa da ``prehome`` come il
-    gestore: tendina, «Accedi». Una pagina che non dice di chi è si accetta
-    (``_sulla_struttura`` → ``None``): l'indirizzo l'abbiamo scritto noi."""
-    driver.get(MOVIMENTI_URL.format(id_turismatica))
-    # Si aspetta la TABELLA, non l'intestazione: l'intestazione arriva col
-    # caricamento, le righe possono arrivare dopo. Si smette prima solo se la
-    # pagina è di un'altra struttura.
-    p = _aspetta_pagina(
-        driver, lambda p: bool(p.righe) or _sulla_struttura(p, id_turismatica) is False,
-        ATTESA_PAGINA_S,
-    ) or pagina(driver)
-    if _sulla_struttura(p, id_turismatica) is False:
-        log.warning(
-            "l'indirizzo diretto ha aperto la struttura %s invece di %s: passo da prehome",
-            p.struttura.id_turismatica if p.struttura else "?", id_turismatica,
-        )
-        _entra_da_prehome(driver, id_turismatica)
-        p = pagina(driver)
-    elif not p.righe:
-        diagnosi(driver, f"pagina-movimenti-{id_turismatica}-diretta",
-                 f"pagina dei movimenti di {id_turismatica} senza tabella: provo da prehome", copie)
-        _entra_da_prehome(driver, id_turismatica)
-        p = pagina(driver)
+    Sempre da ``prehome`` come il gestore (tendina, «Accedi»): sul portale vero
+    l'indirizzo diretto, senza una struttura scelta, dà «Nuova Turismatica -
+    Error» (prova del 31/10, SPID vero). ``_entra_da_prehome`` aspetta la
+    TABELLA, non l'intestazione: l'intestazione arriva col caricamento, le righe
+    possono arrivare dopo."""
+    _entra_da_prehome(driver, id_turismatica)
+    p = pagina(driver)
     if p.struttura is not None and not stato_utilizzabile(p.struttura.stato or None):
         return messaggi.struttura_non_attiva(id_turismatica, p.struttura.stato)
     if not p.righe:
@@ -1047,3 +1043,8 @@ def _chiudi_dialog(driver: WebDriver) -> None:
         driver.execute_script(
             "arguments[0].click();", driver.find_element(*_CHIUDI_DIALOG),
         )
+
+
+# I vecchi nomi: finché l'app è ferma alla v1.4.0. Via quando il suo import usa i pubblici.
+_apri_mese = apri_mese
+_PassiSelenium = PassiSelenium

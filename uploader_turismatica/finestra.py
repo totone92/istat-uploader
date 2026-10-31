@@ -31,13 +31,20 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from uploader_turismatica import __version__, aggiornamento, configurazione, registro
+from uploader_turismatica import (
+    __version__,
+    aggiornamento,
+    configurazione,
+    istanza,
+    registro,
+)
 from uploader_turismatica.api import Api
 from uploader_turismatica.sessione import SessioneSelenium
 
 log = logging.getLogger(__name__)
 
 UI = Path(__file__).resolve().parent / "ui"
+MUTEX = "Local\\IstatUploader"
 URL_WEBVIEW2 = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 MESSAGGIO_WEBVIEW2 = (
     "Per mostrare la sua finestra, Istat Uploader usa «Microsoft Edge WebView2», "
@@ -191,6 +198,8 @@ def _crea_api(percorso_registro: Path | None, finestra_ref: dict[str, Any]) -> A
 
 
 def avvia() -> int:
+    if istanza.gia_aperto(MUTEX, "Istat Uploader"):
+        return 0
     percorso = registro.configura()
     log.info("avvio | versione=%s", __version__)
     if webview2_presente() is False:

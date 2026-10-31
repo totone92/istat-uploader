@@ -96,22 +96,45 @@ def test_leggi_mesi_di_un_altra_struttura_dell_elenco(
     assert "2026-10" in letti.mesi
 
 
-def test_se_l_indirizzo_apre_un_altra_struttura_si_passa_da_prehome(
+def _prima_diretta(driver: DriverFinto) -> bool:
+    """Si è aperto l'indirizzo dei movimenti prima di scegliere la struttura?"""
+    for r in driver.registro:
+        if r.startswith("scegli:"):
+            return False
+        if r.startswith("get:") and "idStruttura=" in r:
+            return True
+    return False
+
+
+def test_ai_movimenti_si_va_sempre_da_prehome_mai_dal_link(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = DriverFinto(ricorda_scelta=True)
+    driver = DriverFinto()
     s = _sessione(tmp_path, driver, monkeypatch)
     letti = s.leggi_mesi("12345", [OTTOBRE], strutture_note={"12345"})
     assert SCELTA_INIZIALE != "12345"
     assert "scegli:12345" in driver.registro
+    assert not _prima_diretta(driver)
+    assert not any(r.startswith("get:") and "idStruttura=" in r for r in driver.registro)
     assert letti.struttura is not None and letti.struttura.id_turismatica == "12345"
     assert letti.avviso == ""
+
+
+def test_se_accedi_atterra_su_una_home_si_apre_l_indirizzo_solo_dopo_la_scelta(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = DriverFinto(atterra_su_home=True)
+    s = _sessione(tmp_path, driver, monkeypatch)
+    letti = s.leggi_mesi("12345", [OTTOBRE], strutture_note={"12345"})
+    assert not _prima_diretta(driver)
+    assert any(r.startswith("get:") and "idStruttura=12345" in r for r in driver.registro)
+    assert letti.avviso == "" and "2026-10" in letti.mesi
 
 
 def test_una_struttura_che_prehome_non_ha_lo_dice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    driver = DriverFinto(ricorda_scelta=True)
+    driver = DriverFinto()
     s = _sessione(tmp_path, driver, monkeypatch)
     letti = s.leggi_mesi("99999", [OTTOBRE], strutture_note={"12345"})
     assert letti.avviso.startswith("La struttura 99999 non è fra quelle del tuo account")
@@ -288,7 +311,7 @@ def test_sessione_scaduta_a_meta_si_aspetta_e_si_riprende_dal_giorno(
     assert pause == [True] and driver.pressioni_carica == 4
     # si è tornati alla pagina dei movimenti dopo il rientro
     dopo = driver.registro[driver.registro.index("rientro"):]
-    assert any("movimentoospiti" in r for r in dopo)
+    assert "scegli:12345" in dopo
 
 
 def test_rientro_dichiarato_ma_non_vero_si_richiede(

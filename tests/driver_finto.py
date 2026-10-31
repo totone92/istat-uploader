@@ -13,9 +13,8 @@ Cosa fa:
   la mostra Chrome dopo il JavaScript** (``movimenti-dopo-js.html``: PrimeFaces
   aggiunge l'etichetta della colonna in ogni cella — il guasto della v1.3.1),
   con il numero 12345 sostituito da N (intestazione, CIR, CIN, link: coerenti);
-* con ``ricorda_scelta=True`` imita un portale che **ignora** l'indirizzo e
-  apre la struttura scelta l'ultima volta in prehome, finché non se ne sceglie
-  un'altra con la tendina e «Accedi»;
+* l'indirizzo dei movimenti, senza la scelta in prehome, dà la pagina d'errore del
+  portale vero; con ``atterra_su_home=True`` «Accedi» porta a una home senza tabella;
 * il dialog di caricamento si apre con ``PrimeFaces.ab`` e si chiude col suo
   bottone di chiusura;
 * le schede dinamiche non cambiano niente: della scheda «Movimento periodo
@@ -48,6 +47,8 @@ _MOVIMENTI = (CARTELLA / "movimenti-dopo-js.html").read_text(encoding="utf-8")
 #: La struttura selezionata nella copia vera di prehome.
 SCELTA_INIZIALE = "12341"
 LOGIN_URL = "https://identity.example/spid/login"
+HOME_URL = "https://turismatica.regione.umbria.it/ntojsf/private/home.xhtml"
+_ERRORE = "<html><head><title>Nuova Turismatica - Error</title></head><body>ERRORE</body></html>"
 _LOGIN = "<html><head><title>Accesso</title></head><body>Accedi con SPID</body></html>"
 #: Le righe della copia vera dei movimenti: 01-20 ottobre 2026.
 _PRIMO_GIORNO = date(2026, 10, 1)
@@ -82,12 +83,12 @@ class ElementoFinto:
 
 
 class DriverFinto:
-    def __init__(self, *, ricorda_scelta: bool = False, prehome_lenta: int = 0,
+    def __init__(self, *, atterra_su_home: bool = False, prehome_lenta: int = 0,
                  carica_accettato: bool = True, tabella_vecchia: bool = False,
                  scade_dopo: int | None = None, caricati: set[date] | None = None) -> None:
         self._url = "about:blank"
         self._pagina = ""
-        self.ricorda_scelta = ricorda_scelta
+        self.atterra_su_home = atterra_su_home
         self.scelta = SCELTA_INIZIALE
         #: Quante letture di prehome restituiscono la pagina ancora vuota.
         self.prehome_lenta = prehome_lenta
@@ -146,8 +147,8 @@ class DriverFinto:
             return
         m = re.search(r"idStruttura=(\d+)", url)
         if m is not None:
-            ident = self.scelta if self.ricorda_scelta else m.group(1)
-            self._pagina = movimenti_di(ident)
+            # Come il portale vero: senza la scelta in prehome, la pagina d'errore.
+            self._pagina = movimenti_di(m.group(1)) if self.scelta == m.group(1) else _ERRORE
             return
         self._pagina = "<html><body></body></html>"
 
@@ -191,8 +192,11 @@ class DriverFinto:
             if f'value="{ident}"' not in self._pagina:
                 return "assente"
             self.scelta = ident
-            self._url = MOVIMENTI_URL.format(ident)
-            self._pagina = movimenti_di(ident)
+            if self.atterra_su_home:
+                self._url, self._pagina = HOME_URL, "<html><body></body></html>"
+            else:
+                self._url = MOVIMENTI_URL.format(ident)
+                self._pagina = movimenti_di(ident)
             return "ok"
         if "PF('tabView')" in script:
             self.registro.append(f"scheda:{argomenti[0]}")

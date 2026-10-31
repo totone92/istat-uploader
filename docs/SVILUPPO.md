@@ -166,7 +166,7 @@ ma coerenti) i selettori sono allineati a quelle. Le copie stanno in
 | elenco strutture | `prehome.xhtml`: `selectOneMenu` PrimeFaces, `<select>` nascosto con id `…_input`; `option value` = idStruttura, testo = nome (spazi in coda). La v1.2.0 cercava «strutt» nell'id e non trovava niente | `riconoscimento.strutture` / `_select_di_strutture` (vuole un titolo che parli di strutture: nella pagina dei movimenti c'è la tendina delle **provenienze**) |
 | intestazione | `div.nomestruttura`: nome, «(tipologia - …)», «Comune: …», CIR, CIN; `div.stato VALIDATA`; l'id dai link della pagina (`dettagliostruttura.xhtml?idStruttura=`, `par_STRU%3D`) | `riconoscimento.intestazione` |
 | tabella e bottoni | letta **in Python dall'HTML** (`driver.page_source`), non più con un JavaScript dentro Chrome: la stessa regola nei test e sul portale. Colonne per intestazione, bottoni per `title`/icona; il bottone di caricamento c'è solo sul primo giorno non inserito | `pagina_movimenti.leggi_pagina` |
-| entrare in una struttura | GET diretta `?idStruttura=`; se apre un'altra struttura o nessuna tabella, `prehome` → widget `selectValue` → «Accedi», come il gestore | `portale.apri_movimenti` |
+| entrare in una struttura | sempre `prehome` → widget `selectValue` → «Accedi», come il gestore; la GET diretta `?idStruttura=` da fuori dà «Nuova Turismatica - Error» (31/10, SPID vero) e si usa solo dopo «Accedi», se il portale atterra su una sua home | `portale.apri_movimenti` |
 | mesi | frecce `monthButtonText` solo fra mesi **aperti** (spente nel campione); un mese prima di quelli è nel periodo chiuso → scheda «Movimento periodo chiuso» (TabView **dinamico**, `PF('tabView').select(i)`) | `portale.vai_al_mese` → `Raggiunto.CHIUSO`, `portale.leggi_mese` |
 | comunicazione mensile | «Invia comunicazione telematica mensile» nelle «Azioni» del periodo aperto; dialogo `cdNotifica` «…per il mese Ottobre 2026…» con «Sì, procedi» / «No, annulla». Nella pagina ci sono altri tre «Sì, procedi» (uno **elimina** i movimenti) | `portale.invia_comunicazione`: chiesta dal gestore nel piano, solo a mese concluso ed entro il 5, solo con tutti i giorni dentro, solo se il dialogo nomina quel mese; in prova si ferma prima del bottone; verifica = il mese è passato nel periodo chiuso |
 | abbinamento dal CIN | il CIN contiene l'idStruttura (ultime 6 cifre, zeri davanti) nel campione | `abbinamento.cin_affidabile`: il file col CIN esatto di una struttura si abbina da solo **solo se** la regola regge su **tutte** le strutture lette |
@@ -408,7 +408,7 @@ uploader_turismatica/
 ├── esito.py         il riepilogo per l'albergatore — PURO, provato
 ├── portale.py       la meccanica Turismatica — le DECISIONI sono pure e provate
 │                    (anche la sequenza di un giorno, `carica_giorno`, e la
-│                    prova), i selettori no (serve il portale: `_PassiSelenium`)
+│                    prova), i selettori no (serve il portale: `PassiSelenium`)
 ├── registro.py      il file di log accanto all'.exe, senza dati personali
 ├── chrome.py        avvio del browser
 ├── diagnostica.py   il controllo del computer (--controllo) e l'autoverifica
