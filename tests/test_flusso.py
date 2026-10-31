@@ -193,6 +193,15 @@ def test_se_l_elenco_non_si_legge_si_inseriscono_a_mano(tmp_path: Path) -> None:
     assert riepilogo["manuale"] and riepilogo["strutture"][0]["id"] == "123"
 
 
+def test_nessuna_struttura_lo_dice_e_annulla_non_blocca_e_non_salva(tmp_path: Path) -> None:
+    a = _api(tmp_path, PortaleFinto([], caricati_settembre=set()))
+    a.collega()
+    assert "nessuna struttura" in _aspetta(a, "manuale")["messaggio"]
+    a.annulla()
+    _aspetta(a, "benvenuto")
+    assert not (tmp_path / "configurazione.json").exists()
+
+
 def test_una_struttura_non_tua_lo_dice_nel_riepilogo(tmp_path: Path) -> None:
     portale = PortaleFinto([StrutturaTrovata("123", "UCI")], caricati_settembre=set(),
                            avvisi={"123": "La struttura 123 non è fra quelle del tuo account Turismatica."})

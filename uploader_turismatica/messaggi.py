@@ -106,9 +106,11 @@ def mese_chiuso_non_letto(mese: str) -> str:
 
 def strutture_non_lette(percorso_copia: str | None) -> str:
     base = (
-        "Sono entrato nel portale ma non sono riuscito a leggere l'elenco delle "
-        "tue strutture. Scrivi qui sotto il numero di ognuna: lo trovi "
-        "nell'indirizzo della pagina dei movimenti, dopo «idStruttura=»."
+        "Sono entrato nel portale ma non trovo nessuna struttura. Può darsi che al "
+        "tuo codice fiscale non ne risulti nessuna, oppure che non sia riuscito a "
+        "leggere la pagina. Se ne hai, scrivi qui sotto il numero di ognuna: lo "
+        "trovi nell'indirizzo della pagina dei movimenti, dopo «idStruttura=». "
+        "Se non ne hai, premi Annulla: non è successo niente."
     )
     if percorso_copia:
         base += (
