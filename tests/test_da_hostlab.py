@@ -174,7 +174,7 @@ def test_app_non_collegata_il_pacchetto_aspetta_la_conferma(tmp_path: Path) -> N
     assert a.controlla_arrivo() is True
     a.aspetta_fine()
     dati = _aspetta(a, "benvenuto")
-    assert dati["da_hostlab"] == "Casa Lavanda · Settembre 2026"
+    assert dati["da_hostlab"] == "Casa Lavanda · settembre 2026"
     assert p.percorso.exists()
 
     a.collega()
