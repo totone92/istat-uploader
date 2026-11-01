@@ -35,6 +35,7 @@ from uploader_turismatica import (
     __version__,
     aggiornamento,
     configurazione,
+    da_hostlab,
     istanza,
     registro,
 )
@@ -60,6 +61,7 @@ _CHIAVI_WEBVIEW2 = (
     "{65C35B14-6C1D-4122-AC46-7148CC9D6497}",   # canary
 )
 VERSIONE_MINIMA = (86, 0, 622, 0)
+ATTESA_ARRIVI_S = 1.0
 
 
 def versione_sufficiente(versioni: Iterable[str]) -> bool:
@@ -194,7 +196,19 @@ def _crea_api(percorso_registro: Path | None, finestra_ref: dict[str, Any]) -> A
         rapporto_computer=rapporto,
         cerca_versione=aggiornamento.cerca,
         apri_indirizzo=_apri_nel_browser,
+        scarica_pacchetto=da_hostlab.scarica,
+        ritira_gettone=da_hostlab.ritira,
     )
+
+
+def _guarda_arrivi(api: Api) -> None:
+    """Il gettone di HostLab, che l'app fosse già aperta o sia partita ora per lui."""
+    while True:
+        try:
+            api.controlla_arrivo()
+        except Exception:  # noqa: BLE001 — un guaio qui non deve chiudere l'app
+            log.exception("controllo dei pacchetti in arrivo")
+        time.sleep(ATTESA_ARRIVI_S)
 
 
 def avvia() -> int:
@@ -226,6 +240,7 @@ def avvia() -> int:
             _collega_trascinamento(finestra, api)
 
     finestra.events.loaded += al_caricamento
+    threading.Thread(target=_guarda_arrivi, args=(api,), daemon=True).start()
     webview.start(private_mode=True)
     if esito.get("motore_sbagliato"):
         return _manca_webview2()

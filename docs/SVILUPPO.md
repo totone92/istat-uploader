@@ -41,6 +41,18 @@ personale scritta `~`.
 
 ---
 
+## v1.6.0 — l'avvio da HostLab (1/11/2026)
+
+- **Installer** (`installer/IstatUploader.iss`, Inno Setup, senza amministratore): registra
+  `hostlab-turismatica://` in HKCU. Il workflow lo installa e lo prova su ogni build.
+- **`da_hostlab.py`**: l'argomento diventa un gettone in `gettone_in_arrivo.txt`, e la finestra
+  aperta lo ritira ogni secondo; è così che funziona anche con l'app già aperta (`istanza.py`
+  chiude il secondo avvio). Lo zip passa da `Api.usa_zip`, come uno scelto a mano.
+- **Il server è una costante**: una pagina qualunque può aprire l'indirizzo, e non deve poter
+  far arrivare uno zip suo. Per le prove, `server_di_prova.txt` nella cartella dati, solo rete privata.
+- **Non collegata al portale**: il pacchetto aspetta sul benvenuto e riparte dopo la conferma.
+- La modalità prova resta quella di ogni avvio, e la vera chiede le due conferme.
+
 ## v1.4.0 — il giro vero si controlla da solo (30/10/2026)
 
 Preparata per il primo giro vero di novembre.

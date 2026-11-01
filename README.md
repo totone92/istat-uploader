@@ -53,6 +53,15 @@ comune, tipologia, CIR e CIN dall'intestazione dei movimenti. Se la lettura non
 riesce, il programma te le fa scrivere a mano e salva una copia della pagina
 **senza dati personali**, da mandare a chi ti assiste.
 
+## Dal tasto di HostLab
+
+Chi usa HostLab installa `IstatUploaderSetup.exe` (non chiede la password di
+amministratore). Nel report ISTAT, «Carica su Turismatica» apre il programma con
+il mese già pronto: niente file da cercare. Il resto è uguale, compresa la
+modalità prova. L'indirizzo che apre il programma porta solo un gettone che vale
+una volta e per due minuti, e il programma lo presenta soltanto a HostLab. Il
+caricamento a mano dallo zip resta com'è, anche senza installare niente.
+
 ## Parte sempre in modalità PROVA
 
 In cima alla finestra c'è una fascia colorata.

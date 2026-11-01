@@ -96,9 +96,10 @@ function disegnaNuovaVersione(versione) {
 /* ─── schermate ───────────────────────────────────────────────────── */
 
 const SCHERMATE = {
-  benvenuto() {
+  benvenuto(d) {
     return `
       <section class="scheda eroe">
+        ${d && d.da_hostlab ? `<div class="avviso ok" style="margin-bottom:16px"><span class="segno">✓</span><div>Da HostLab è arrivato: <strong>${esc(d.da_hostlab)}</strong>. Prima collega il portale: poi riprendo da lì.</div></div>` : ""}
         <h1>Carica i movimenti ISTAT su Turismatica, senza farli a mano</h1>
         <p class="intro">Prima colleghiamo il programma al portale: entri con il tuo SPID o la CIE,
           e io leggo quali strutture gestisci e quali giorni hanno già il movimento.</p>
@@ -316,6 +317,7 @@ const SCHERMATE = {
       <section>
         <h1>Prima di cominciare</h1>
         <p class="intro">Ecco cosa farò. Durante il giro ricontrollo ogni giorno sul portale e salto quelli già presenti.</p>
+        ${d.da_hostlab ? `<div class="avviso ok" style="margin-top:16px"><span class="segno">✓</span><div>Da HostLab: <strong>${esc(d.da_hostlab)}</strong>.</div></div>` : ""}
         ${d.di_prova ? '<div class="avviso attenzione" style="margin-top:16px"><span class="segno">!</span><div>Sono i file inventati dello zip di prova: servono solo in modalità prova, e non li carico mai davvero.</div></div>' : ""}
         ${d.niente_da_fare ? '<div class="avviso ok" style="margin-top:16px"><span class="segno">✓</span><div>Niente da fare: i giorni di questi file risultano già tutti sul portale (o il mese è chiuso).</div></div>' : ""}
         <div class="strutture">${voci}</div>

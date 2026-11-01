@@ -8,8 +8,9 @@ giorno.
 persona, non del programma. È anche il motivo per cui questa app vive sul PC
 del gestore e non su un server.
 
-Non genera e non converte niente: i .txt li produce beb.it e li scarica
-HostLab. Qui si caricano e basta.
+Non genera e non converte niente: i .txt arrivano da HostLab (che li scarica da
+beb.it o li genera), dal suo tasto o in uno zip scelto a mano. Qui si caricano e
+basta.
 """
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"

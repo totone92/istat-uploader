@@ -11,7 +11,7 @@ Le schermate, nell'ordine in cui si incontrano:
 
 ``benvenuto`` → ``spid`` → ``lavoro`` → ``quante`` (o ``manuale`` se l'elenco
 non si legge) → ``lavoro`` → ``riepilogo`` → *OK, si salva* → ``principale``
-→ (zip) → ``abbina`` se serve → ``piano`` → ``spid`` → ``lavoro`` → ``esito``.
+→ (zip scelto a mano, o pacchetto da HostLab: ``da_hostlab.py``) → ``abbina`` se serve → ``piano`` → ``spid`` → ``lavoro`` → ``esito``.
 
 ⚠️ **Si parte SEMPRE in modalità prova** (``PROVA_ALL_AVVIO``). La modalità
 vera chiede due conferme nell'interfaccia, e qui non si accende senza
@@ -20,6 +20,7 @@ vera chiede due conferme nell'interfaccia, e qui non si accende senza
 from __future__ import annotations
 
 import logging
+import shutil
 import threading
 import time
 from collections.abc import Callable
@@ -39,6 +40,7 @@ from uploader_turismatica.abbinamento import (
 from uploader_turismatica.aggiornamento import NuovaVersione
 from uploader_turismatica.chrome import ChromeNonDisponibile
 from uploader_turismatica.configurazione import Configurazione, StrutturaConf
+from uploader_turismatica.da_hostlab import Pacchetto, PacchettoNonDisponibile
 from uploader_turismatica.esito import Esito, EsitoStruttura, riepilogo
 from uploader_turismatica.periodo import MESI, fine_mese, mese_scorso
 from uploader_turismatica.piano import (
@@ -80,6 +82,10 @@ class _Attesa:
     risposta: Any = None
 
 
+def _togli(p: Pacchetto) -> None:
+    shutil.rmtree(p.percorso.parent, ignore_errors=True)
+
+
 class Api:
     def __init__(
         self,
@@ -94,6 +100,8 @@ class Api:
         rapporto_computer: Callable[[], str] | None = None,
         cerca_versione: Callable[[], NuovaVersione | None] | None = None,
         apri_indirizzo: Callable[[str], None] | None = None,
+        scarica_pacchetto: Callable[[str], Pacchetto] | None = None,
+        ritira_gettone: Callable[[], str | None] | None = None,
     ) -> None:
         self._portale = portale
         self._percorso_conf = percorso_configurazione
@@ -104,6 +112,10 @@ class Api:
         self._apri_cartella = apri_cartella
         self._rapporto_computer = rapporto_computer
         self._apri_indirizzo = apri_indirizzo
+        self._scarica_pacchetto = scarica_pacchetto
+        self._ritira_gettone = ritira_gettone
+        self._pacchetto: Pacchetto | None = None
+        self._etichetta_pacchetto = ""
         self._nuova_versione: NuovaVersione | None = None
 
         self._lock = threading.RLock()
@@ -331,6 +343,7 @@ class Api:
             self._conf, self._candidata = c, None
         log.info("strutture confermate: %s", ", ".join(s.id_turismatica for s in tenute))
         self._vai_principale()
+        self._usa_pacchetto()
         return {"ok": True}
 
     # ─── la schermata principale ─────────────────────────────────────────────
@@ -338,7 +351,8 @@ class Api:
     def _vai_principale(self, avviso: str = "", tipo_avviso: str = "info") -> None:
         conf = self._conf
         if conf is None:
-            self._mostra("benvenuto")
+            self._mostra("benvenuto", {"da_hostlab": self._etichetta_pacchetto}
+                         if self._pacchetto else None)
             return
         self._mostra("principale", {
             "strutture": [self._vista_struttura(s) for s in conf.strutture],
@@ -359,6 +373,7 @@ class Api:
             if lavoro.is_alive():
                 return
         self._pulisci_archivio()
+        self._etichetta_pacchetto = ""
         self._vai_principale()
 
     def imposta_prova(self, prova: bool, confermato: bool = False) -> dict[str, Any]:
@@ -412,6 +427,61 @@ class Api:
         else:
             self._prepara_piano({a.gruppo.chiave: a.id_turismatica or "" for a in self._abbinamenti})
         return {"ok": True}
+
+    # ─── il pacchetto che arriva da HostLab ─────────────────────────────────
+
+    def controlla_arrivo(self) -> bool:
+        """Se è arrivato un gettone, ritira il pacchetto. Finché l'app sta lavorando o
+        aspetta una risposta il gettone resta dov'è: se poi scade, HostLab lo dice."""
+        if self._ritira_gettone is None or self._scarica_pacchetto is None:
+            return False
+        with self._lock:
+            occupata = (self._lavoro is not None and self._lavoro.is_alive()) or (
+                self._schermata == "riepilogo")
+        if occupata:
+            return False
+        gettone = self._ritira_gettone()
+        if not gettone:
+            return False
+        scarica = self._scarica_pacchetto
+        self._avvia_lavoro(lambda: self._giro_pacchetto(gettone, scarica))
+        return True
+
+    def _giro_pacchetto(self, gettone: str, scarica: Callable[[str], Pacchetto]) -> None:
+        self._mostra("lavoro", {"titolo": "Ritiro il mese da HostLab",
+                                "dettaglio": "Un momento: poi ti mostro cosa farò."})
+        try:
+            pacchetto = scarica(gettone)
+        except PacchettoNonDisponibile as exc:
+            self._errore(str(exc))
+            return
+        self._scarta_pacchetto()
+        self._pacchetto = pacchetto
+        mese = pacchetto.mese
+        self._etichetta_pacchetto = " · ".join(p for p in (
+            pacchetto.struttura,
+            f"{MESI[int(mese[5:]) - 1]} {mese[:4]}" if len(mese) == 7 else "",
+        ) if p)
+        self._pulisci_archivio()
+        self._vai_principale()      # senza strutture collegate è il benvenuto
+        self._usa_pacchetto()
+
+    def _usa_pacchetto(self) -> None:
+        """Il pacchetto entra dalla stessa porta di uno zip scelto a mano. Se il programma
+        non è ancora collegato al portale aspetta: si riprende a strutture confermate."""
+        p = self._pacchetto
+        if p is None or self._conf is None:
+            return
+        self._pacchetto = None
+        try:
+            self.usa_zip(str(p.percorso))
+        finally:
+            _togli(p)
+
+    def _scarta_pacchetto(self) -> None:
+        if self._pacchetto is not None:
+            _togli(self._pacchetto)
+            self._pacchetto = None
 
     def _mostra_abbina(self) -> None:
         assert self._conf is not None
@@ -505,6 +575,7 @@ class Api:
             ],
             "niente_da_fare": not any(v.da_caricare or v.comunicabile for v in voci),
             "di_prova": prova_nel_piano,
+            "da_hostlab": self._etichetta_pacchetto,
             "conferma_vera": self._frase_conferma(voci),
         })
 

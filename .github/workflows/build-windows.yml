@@ -3,7 +3,9 @@
 # - a ogni push su main, e a mano da Actions → «Build Windows» → Run workflow:
 #   l'.exe esce come ARTEFATTO scaricabile dalla pagina del giro (il file
 #   stesso, non uno zip);
-# - a ogni tag vX.Y.Z: in più lo allega a una RELEASE (link stabile, non scade),
+# - sempre, anche IstatUploaderSetup.exe: l'installer, che registra l'indirizzo con
+#   cui HostLab apre l'app (installer/IstatUploader.iss);
+# - a ogni tag vX.Y.Z: in più li allega a una RELEASE (link stabile, non scade),
 #   insieme allo zip di prova (scripts/zip_di_prova.py: settembre 2026
 #   inventato, bloccato in modalità vera).
 #
@@ -146,6 +148,30 @@ jobs:
           Get-Content "$env:APPDATA\UploaderTurismatica\controllo.txt"
           if ($p.ExitCode -ne 0) { throw "controllo: qualcosa con la ✗" }
 
+      - name: Costruisco l'installer
+        shell: pwsh
+        run: |
+          $v = python -c "import uploader_turismatica as u; print(u.__version__)"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; if ($LASTEXITCODE -ne 0) { throw "Inno Setup non installato" } }
+          & $iscc "/DVersione=$v" installer\IstatUploader.iss
+          if ($LASTEXITCODE -ne 0) { throw "installer non costruito" }
+
+      # L'installer vero, come lo userà un gestore: senza amministratore, poi si guarda che
+      # l'indirizzo punti all'.exe installato e che quell'.exe funzioni.
+      - name: Provo l'installer
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\IstatUploaderSetup.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "installazione fallita ($($p.ExitCode))" }
+          $comando = (Get-ItemProperty 'HKCU:\Software\Classes\hostlab-turismatica\shell\open\command').'(default)'
+          "indirizzo registrato: $comando"
+          $exe = "$env:LOCALAPPDATA\Programs\IstatUploader\IstatUploader.exe"
+          if ($comando -ne "`"$exe`" `"%1`"") { throw "comando inatteso" }
+          $a = Start-Process -FilePath $exe -ArgumentList '--autoverifica', "$env:RUNNER_TEMP\av.txt" -Wait -PassThru
+          if ($a.ExitCode -ne 0) { throw "autoverifica dell'installato fallita" }
+
       # Lo zip di prova si costruisce qui, dal codice, e non si committa.
       - name: Zip di prova (settembre 2026 inventato)
         run: python scripts/zip_di_prova.py dist/prova-settembre-2026.zip
@@ -155,6 +181,13 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           path: dist/IstatUploader.exe
+          archive: false
+          if-no-files-found: error
+          retention-days: 90
+
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/IstatUploaderSetup.exe
           archive: false
           if-no-files-found: error
           retention-days: 90
@@ -177,6 +210,10 @@ jobs:
         with:
           name: IstatUploader.exe
           path: scaricati/exe
+      - uses: actions/download-artifact@v8
+        with:
+          name: IstatUploaderSetup.exe
+          path: scaricati/setup
       # ⚠️ skip-decompress: un artefatto che È uno zip (Content-Type
       # application/zip) download-artifact v8 lo SCOMPATTA da solo — era il
       # motivo per cui la Release di v1.1.1 non trovava prova-settembre-2026.zip
@@ -197,12 +234,15 @@ jobs:
           zip=$(find scaricati/prova -type f | head -n 1)
           test -n "$exe" || { echo "IstatUploader.exe non scaricato"; exit 1; }
           test -n "$zip" || { echo "zip di prova non scaricato"; exit 1; }
+          setup=$(find scaricati/setup -type f -name '*.exe' | head -n 1)
+          test -n "$setup" || { echo "IstatUploaderSetup.exe non scaricato"; exit 1; }
           cp "$exe" release/IstatUploader.exe
+          cp "$setup" release/IstatUploaderSetup.exe
           cp "$zip" release/prova-settembre-2026.zip
           # dev'essere ancora uno zip, col marcatore dentro
           unzip -l release/prova-settembre-2026.zip | grep -q 'PROVA.txt' \
             || { echo "lo zip di prova non contiene PROVA.txt"; exit 1; }
-          gh release create "${{ github.ref_name }}" release/IstatUploader.exe release/prova-settembre-2026.zip \
+          gh release create "${{ github.ref_name }}" release/IstatUploaderSetup.exe release/IstatUploader.exe release/prova-settembre-2026.zip \
             --repo "${{ github.repository }}" \
             --title "Istat Uploader ${{ github.ref_name }}" \
-            --notes "IstatUploader.exe è il programma. prova-settembre-2026.zip contiene file INVENTATI per la prima prova: funziona solo in MODALITÀ PROVA. Istruzioni: BUILD_WINDOWS.md."
+            --notes "IstatUploaderSetup.exe installa il programma e il collegamento col tasto di HostLab. IstatUploader.exe è il programma senza installazione, per caricare uno zip a mano. prova-settembre-2026.zip contiene file INVENTATI per la prima prova: funziona solo in MODALITÀ PROVA. Istruzioni: BUILD_WINDOWS.md."
