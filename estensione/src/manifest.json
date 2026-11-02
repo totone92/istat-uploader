@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Istat Uploader per Turismatica",
+  "version": "0.1.0",
+  "description": "Carica su Turismatica (Regione Umbria) i movimenti ISTAT del mese, un giorno alla volta, dopo il tuo accesso SPID o CIE.",
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icone/icona-16.png",
+    "48": "icone/icona-48.png",
+    "128": "icone/icona-128.png"
+  },
+  "action": {
+    "default_title": "Istat Uploader",
+    "default_icon": {
+      "16": "icone/icona-16.png",
+      "48": "icone/icona-48.png"
+    }
+  },
+  "background": {
+    "service_worker": "sfondo.js"
+  },
+  "permissions": ["scripting"],
+  "host_permissions": [
+    "https://turismatica.regione.umbria.it/*",
+    "https://hostlab.umbriaround.it/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://hostlab.umbriaround.it/*"],
+      "js": ["ponte-hostlab.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; worker-src 'self'; connect-src https://hostlab.umbriaround.it; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  }
+}

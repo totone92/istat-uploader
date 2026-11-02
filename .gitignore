@@ -11,3 +11,6 @@ Uploader2.py
 *.log
 *.log.*
 .venv-build/
+
+# le skill di Google si rimettono con estensione/skills-lock.json
+estensione/.claude/
