@@ -16,6 +16,7 @@ qui. Il prezzo è che a ogni avvio si estrae in una cartella temporanea, quindi
 la prima schermata arriva dopo qualche secondo. Per la strada opposta (avvio
 immediato, ma una cartella da scompattare) vedi `ONEDIR` qui sotto.
 """
+import os
 import re
 import sys
 from pathlib import Path
@@ -61,7 +62,9 @@ _INFO = VSVersionInfo(
 )
 _ICONA = Path(SPECPATH) / "assets" / f"{NOME}.ico"  # noqa: F821 — lo dà PyInstaller
 
-ONEDIR = False        # True = cartella + .exe dentro, invece del file unico
+# Cartella + .exe dentro, invece del file unico: serve al pacchetto MSIX per lo Store, dove
+# Microsoft firma solo ciò che sta nel pacchetto e un .pyd estratto in %TEMP% resterebbe fuori.
+ONEDIR = os.environ.get("ISTAT_BUILD") == "msix"
 
 a = Analysis(
     ["uploader_turismatica/__main__.py"],

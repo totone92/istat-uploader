@@ -3,8 +3,8 @@
 # - a ogni push su main, e a mano da Actions → «Build Windows» → Run workflow:
 #   l'.exe esce come ARTEFATTO scaricabile dalla pagina del giro (il file
 #   stesso, non uno zip);
-# - sempre, anche IstatUploaderSetup.exe: l'installer, che registra l'indirizzo con
-#   cui HostLab apre l'app (installer/IstatUploader.iss);
+# - sempre, anche IstatUploader.msix: lo stesso programma impacchettato per il Microsoft Store
+#   (scripts/pacchetto_msix.py), senza firma: la mette Microsoft alla pubblicazione;
 # - a ogni tag vX.Y.Z: in più li allega a una RELEASE (link stabile, non scade),
 #   insieme allo zip di prova (scripts/zip_di_prova.py: settembre 2026
 #   inventato, bloccato in modalità vera).
@@ -70,7 +70,7 @@ jobs:
         run: python scripts/controlla_tag.py "${{ github.ref_name }}"
 
       # La firma (BUILD_WINDOWS.md, «La firma»): solo sui tag e sui giri a mano, perché ogni
-      # giro consuma 8 firme del piano. Senza i quattro segreti la build esce non firmata,
+      # giro consuma 6 firme del piano. Senza i quattro segreti la build esce non firmata,
       # con un avviso. La versione di CodeSignTool è fissata col suo hash.
       - name: La firma è pronta?
         shell: pwsh
@@ -168,25 +168,7 @@ jobs:
           Get-Content "$env:APPDATA\UploaderTurismatica\controllo.txt"
           if ($p.ExitCode -ne 0) { throw "controllo: qualcosa con la ✗" }
 
-      - name: Costruisco l'installer
-        shell: pwsh
-        env:
-          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
-          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
-          ESIGNER_CREDENTIAL_ID: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
-          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
-        run: |
-          $v = python -c "import uploader_turismatica as u; print(u.__version__)"
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; if ($LASTEXITCODE -ne 0) { throw "Inno Setup non installato" } }
-          $firma = @()
-          if ($env:FIRMA_PRONTA -eq "1") {
-            $firma = "/DFirma", "/Sfirma=powershell -NoProfile -ExecutionPolicy Bypass -File $PWD\scripts\firma.ps1 `$f"
-          }
-          & $iscc "/DVersione=$v" @firma installer\IstatUploader.iss
-          if ($LASTEXITCODE -ne 0) { throw "installer non costruito" }
-
-      # Catena valida fino a una radice di Windows e marca temporale, per .exe e installer;
+      # Catena valida fino a una radice di Windows e marca temporale, per l'.exe;
       # poi i binari dentro l'.exe, che Smart App Control controlla uno per uno.
       - name: Verifica della firma
         if: env.FIRMA_PRONTA == '1'
@@ -194,7 +176,7 @@ jobs:
         run: |
           $kit = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
             Sort-Object FullName | Select-Object -Last 1
-          foreach ($f in "dist\IstatUploader.exe", "dist\IstatUploaderSetup.exe") {
+          foreach ($f in @("dist\IstatUploader.exe")) {
             $s = Get-AuthenticodeSignature $f
             "$f : $($s.Status), $($s.SignerCertificate.Subject), marca: $($s.TimeStamperCertificate.Subject)" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
             if (-not $s.TimeStamperCertificate) { throw "$f senza marca temporale" }
@@ -204,20 +186,55 @@ jobs:
           python scripts/firma_pe.py dist/IstatUploader.exe
           if ($LASTEXITCODE -ne 0) { throw "binari interni senza firma" }
 
-      # L'installer vero, come lo userà un gestore: senza amministratore, poi si guarda che
-      # l'indirizzo punti all'.exe installato e che quell'.exe funzioni.
-      - name: Provo l'installer
+      # L'autoinstallazione com'è per un gestore: senza amministratore, l'indirizzo punta
+      # all'.exe installato, che funziona; poi la disinstallazione non lascia niente.
+      - name: Provo l'installazione e la disinstallazione
         timeout-minutes: 5
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath dist\IstatUploaderSetup.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          $p = Start-Process -FilePath dist\IstatUploader.exe -ArgumentList '--installa' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "installazione fallita ($($p.ExitCode))" }
-          $comando = (Get-ItemProperty 'HKCU:\Software\Classes\hostlab-turismatica\shell\open\command').'(default)'
+          $cartella = "$env:LOCALAPPDATA\Programs\IstatUploader"
+          $exe = "$cartella\IstatUploader.exe"
+          $indirizzo = 'HKCU:\Software\Classes\hostlab-turismatica'
+          $voce = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\IstatUploader'
+          $comando = (Get-ItemProperty "$indirizzo\shell\open\command").'(default)'
           "indirizzo registrato: $comando"
-          $exe = "$env:LOCALAPPDATA\Programs\IstatUploader\IstatUploader.exe"
           if ($comando -ne "`"$exe`" `"%1`"") { throw "comando inatteso" }
+          (Get-ItemProperty $voce).UninstallString
+          $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Istat Uploader.lnk"
+          if (-not (Test-Path $lnk)) { throw "manca il collegamento nel menu Start" }
+          if ((New-Object -ComObject WScript.Shell).CreateShortcut($lnk).TargetPath -ne $exe) { throw "collegamento sbagliato" }
           $a = Start-Process -FilePath $exe -ArgumentList '--autoverifica', "$env:RUNNER_TEMP\av.txt" -Wait -PassThru
           if ($a.ExitCode -ne 0) { throw "autoverifica dell'installato fallita" }
+          $d = Start-Process -FilePath $exe -ArgumentList '--disinstalla', '--silenzioso' -Wait -PassThru
+          if ($d.ExitCode -ne 0) { throw "disinstallazione fallita ($($d.ExitCode))" }
+          Start-Sleep -Seconds 15
+          foreach ($resto in $indirizzo, $voce, $lnk, $cartella) {
+            if (Test-Path $resto) { throw "dopo la disinstallazione resta $resto" }
+          }
+
+      # Per il Microsoft Store: Nome ed Editore veri si leggono in Partner Center e vanno nelle
+      # variabili del repository; finché non ci sono il pacchetto serve solo alle prove.
+      - name: Costruisco il pacchetto MSIX
+        timeout-minutes: 8
+        shell: pwsh
+        env:
+          ISTAT_BUILD: msix
+          FIRMA_PRONTA: "0"
+          STORE_NOME: ${{ vars.STORE_NOME }}
+          STORE_EDITORE: ${{ vars.STORE_EDITORE }}
+          STORE_NOME_EDITORE: ${{ vars.STORE_NOME_EDITORE }}
+        run: |
+          python -m PyInstaller IstatUploader.spec --noconfirm --clean --distpath dist-msix --workpath build-msix
+          if ($LASTEXITCODE -ne 0) { throw "build a cartella fallita" }
+          $a = Start-Process -FilePath dist-msix\IstatUploader\IstatUploader.exe -ArgumentList '--autoverifica', "$env:RUNNER_TEMP\av-msix.txt" -Wait -PassThru
+          if ($a.ExitCode -ne 0) { throw "autoverifica della build a cartella fallita" }
+          python scripts/pacchetto_msix.py dist-msix\IstatUploader dist-msix\pacchetto
+          $kit = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" |
+            Sort-Object FullName | Select-Object -Last 1
+          & $kit.FullName pack /o /d dist-msix\pacchetto /p dist\IstatUploader.msix
+          if ($LASTEXITCODE -ne 0) { throw "pacchetto MSIX non costruito" }
 
       # Lo zip di prova si costruisce qui, dal codice, e non si committa.
       - name: Zip di prova (settembre 2026 inventato)
@@ -234,7 +251,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          path: dist/IstatUploaderSetup.exe
+          path: dist/IstatUploader.msix
           archive: false
           if-no-files-found: error
           retention-days: 90
@@ -257,10 +274,6 @@ jobs:
         with:
           name: IstatUploader.exe
           path: scaricati/exe
-      - uses: actions/download-artifact@v8
-        with:
-          name: IstatUploaderSetup.exe
-          path: scaricati/setup
       # ⚠️ skip-decompress: un artefatto che È uno zip (Content-Type
       # application/zip) download-artifact v8 lo SCOMPATTA da solo — era il
       # motivo per cui la Release di v1.1.1 non trovava prova-settembre-2026.zip
@@ -281,10 +294,9 @@ jobs:
           zip=$(find scaricati/prova -type f | head -n 1)
           test -n "$exe" || { echo "IstatUploader.exe non scaricato"; exit 1; }
           test -n "$zip" || { echo "zip di prova non scaricato"; exit 1; }
-          setup=$(find scaricati/setup -type f -name '*.exe' | head -n 1)
-          test -n "$setup" || { echo "IstatUploaderSetup.exe non scaricato"; exit 1; }
           cp "$exe" release/IstatUploader.exe
-          cp "$setup" release/IstatUploaderSetup.exe
+          # Stesso file col vecchio nome: un link a IstatUploaderSetup.exe continua a funzionare.
+          cp "$exe" release/IstatUploaderSetup.exe
           cp "$zip" release/prova-settembre-2026.zip
           # dev'essere ancora uno zip, col marcatore dentro
           unzip -l release/prova-settembre-2026.zip | grep -q 'PROVA.txt' \
@@ -292,4 +304,4 @@ jobs:
           gh release create "${{ github.ref_name }}" release/IstatUploaderSetup.exe release/IstatUploader.exe release/prova-settembre-2026.zip \
             --repo "${{ github.repository }}" \
             --title "Istat Uploader ${{ github.ref_name }}" \
-            --notes "IstatUploaderSetup.exe installa il programma e il collegamento col tasto di HostLab. IstatUploader.exe è il programma senza installazione, per caricare uno zip a mano. prova-settembre-2026.zip contiene file INVENTATI per la prima prova: funziona solo in MODALITÀ PROVA. Istruzioni: BUILD_WINDOWS.md."
+            --notes "Scarica IstatUploader.exe e aprilo: si installa da solo, senza permessi da amministratore. Chi ha la v1.6.0 passa a questa aprendolo: sostituisce il vecchio programma. IstatUploaderSetup.exe è lo stesso file, per i link vecchi. prova-settembre-2026.zip contiene file INVENTATI per la prima prova: funziona solo in MODALITÀ PROVA. Istruzioni: BUILD_WINDOWS.md."

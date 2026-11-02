@@ -13,4 +13,4 @@ beb.it o li genera), dal suo tasto o in uno zip scelto a mano. Qui si caricano e
 basta.
 """
 
-__version__ = "1.6.0"
+__version__ = "1.6.1"

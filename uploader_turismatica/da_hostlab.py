@@ -1,6 +1,6 @@
 """L'avvio da HostLab: il tasto «Carica su Turismatica» apre l'app con un gettone monouso.
 
-L'installer registra l'indirizzo ``hostlab-turismatica://carica/<gettone>``: Windows avvia
+L'.exe registra da solo l'indirizzo (``installazione.py``) ``hostlab-turismatica://carica/<gettone>``: Windows avvia
 l'.exe con quell'argomento. L'indirizzo porta solo il gettone. Ogni avvio lo deposita in un
 file nella cartella dati, e la finestra aperta (questa o quella di prima) lo ritira da lì:
 la strada è una sola, che l'app fosse chiusa o già aperta.

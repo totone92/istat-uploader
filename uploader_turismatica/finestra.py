@@ -36,6 +36,7 @@ from uploader_turismatica import (
     aggiornamento,
     configurazione,
     da_hostlab,
+    installazione,
     istanza,
     registro,
 )
@@ -194,7 +195,8 @@ def _crea_api(percorso_registro: Path | None, finestra_ref: dict[str, Any]) -> A
         scegli_file=scegli_file,
         apri_cartella=apri_cartella,
         rapporto_computer=rapporto,
-        cerca_versione=aggiornamento.cerca,
+        # Dentro lo Store gli aggiornamenti arrivano da soli: nessun avviso verso GitHub.
+        cerca_versione=None if installazione.nel_pacchetto() else aggiornamento.cerca,
         apri_indirizzo=_apri_nel_browser,
         scarica_pacchetto=da_hostlab.scarica,
         ritira_gettone=da_hostlab.ritira,

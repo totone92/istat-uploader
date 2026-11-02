@@ -8,7 +8,9 @@
   ``diagnostica.py``) — la prima cosa da fare su un PC nuovo;
 * ``--autoverifica <file>`` e ``--autoverifica-finestra <file>``: per la build
   automatica. Il primo controlla che nell'.exe ci sia tutto, il secondo apre la
-  finestra vera e aspetta che l'interfaccia parli col Python.
+  finestra vera e aspetta che l'interfaccia parli col Python;
+* ``--disinstalla [--silenzioso]`` e ``--installa``: vedi ``installazione.py``. Anche ogni avvio
+  normale passa di lì: la prima volta l'.exe si copia e lascia il posto alla copia installata.
 """
 import sys
 from pathlib import Path
@@ -16,12 +18,18 @@ from pathlib import Path
 
 def main() -> int:
     argomenti = sys.argv[1:]
-    from uploader_turismatica import da_hostlab
+    from uploader_turismatica import da_hostlab, installazione
 
+    if argomenti[:1] == ["--disinstalla"]:
+        return installazione.disinstalla(argomenti)
+    if argomenti[:1] == ["--installa"]:
+        return installazione.installa()
     link = da_hostlab.link_fra_gli_argomenti(argomenti)
     if link is not None:
         from uploader_turismatica.finestra import avvia
 
+        if installazione.allinea(argomenti):
+            return 0
         gettone = da_hostlab.gettone_dal_link(link)
         if gettone:
             da_hostlab.deposita(gettone)
@@ -38,6 +46,8 @@ def main() -> int:
         from uploader_turismatica.diagnostica import da_riga_di_comando
 
         return da_riga_di_comando()
+    if installazione.allinea(argomenti):
+        return 0
     from uploader_turismatica.finestra import avvia
 
     return avvia()
