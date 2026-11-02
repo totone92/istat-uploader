@@ -56,7 +56,7 @@ riesce, il programma te le fa scrivere a mano e salva una copia della pagina
 
 ## Dal tasto di HostLab
 
-Chi usa HostLab installa `IstatUploaderSetup.exe` (non chiede la password di
+Chi usa HostLab apre una volta `IstatUploader.exe` (non chiede la password di
 amministratore). Nel report ISTAT, «Carica su Turismatica» apre il programma con
 il mese già pronto: niente file da cercare. Il resto è uguale, compresa la
 modalità prova. L'indirizzo che apre il programma porta solo un gettone che vale
