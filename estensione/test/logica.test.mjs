@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { deflateRawSync } from "node:zlib";
 
 import { Flusso, memoriaLocale } from "../src/flusso.js";
+import { serverValido } from "../src/hostlab.js";
 import {
   abbina, cinAffidabile, idDalNome, intestazioneFile, normalizza, raggruppa,
 } from "../src/logica/abbinamento.js";
@@ -359,4 +360,13 @@ test("il gestore può fermarsi durante l'attesa del login", async () => {
   await fine(f);
   assert.equal(f.schermata, "benvenuto");
   assert.deepEqual(f.file, []);
+});
+
+test("il server del pacchetto sta solo sui sottodomini di umbriaround.it", () => {
+  assert.equal(serverValido("https://tenanta.umbriaround.it"), true);
+  assert.equal(serverValido("https://a.b.umbriaround.it"), true);
+  for (const s of ["http://tenanta.umbriaround.it", "https://umbriaround.it", "https://umbriaround.it.male.example",
+    "https://maleumbriaround.it", "https://tenanta.umbriaround.it/x", "https://tenanta.umbriaround.it:8443", null]) {
+    assert.equal(serverValido(s), false, String(s));
+  }
 });

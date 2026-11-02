@@ -23,7 +23,11 @@ from banco import (  # noqa: E402
     DIST,
     ESTENSIONE,
     FIXTURE,
+    FUORI,
+    HOSTLAB,
+    HOSTLAB_B,
     RADICE,
+    TURISMATICA,
     Banco,
     contenuto_giorno,
     zip_del_mese,
@@ -148,8 +152,9 @@ def test_manifest_permessi_minimi() -> None:
     m = json.loads((SRC / "manifest.json").read_text(encoding="utf-8"))
     assert m["manifest_version"] == 3
     assert m["permissions"] == ["scripting"]
-    assert m["host_permissions"] == ["https://turismatica.regione.umbria.it/*", "https://hostlab.umbriaround.it/*"]
-    assert [c["matches"] for c in m["content_scripts"]] == [["https://hostlab.umbriaround.it/*"]]
+    assert m["host_permissions"] == ["https://turismatica.regione.umbria.it/*", "https://*.umbriaround.it/*"]
+    assert [c["matches"] for c in m["content_scripts"]] == [["https://*.umbriaround.it/*"]]
+    assert "optional_host_permissions" not in m
     for lato, nome in m["icons"].items():
         firma = (SRC / nome).read_bytes()
         assert int.from_bytes(firma[16:20]) == int(lato)
@@ -157,8 +162,7 @@ def test_manifest_permessi_minimi() -> None:
 
 def test_niente_verso_fortitudo_nel_codice() -> None:
     testo = "\n".join(p.read_text(encoding="utf-8") for p in SRC.rglob("*.js"))
-    assert set(re.findall(r"https?://[\w.-]+", testo)) == {
-        "https://turismatica.regione.umbria.it", "https://hostlab.umbriaround.it"}
+    assert set(re.findall(r"https?://[\w.-]+", testo)) == {"https://turismatica.regione.umbria.it"}
     # Le sole chiamate di rete sono il ritiro del pacchetto; niente telemetria.
     assert re.findall(r"\b(fetch|XMLHttpRequest|sendBeacon|WebSocket|EventSource)\b", testo) == ["fetch"]
     assert "fetch(" in (SRC / "hostlab.js").read_text(encoding="utf-8")
@@ -339,16 +343,16 @@ def test_registro_senza_dati_personali(giro: Giro) -> None:
     assert "inventato" not in registro, "il contenuto dei file non ci va"
     assert "RSSMRA" not in registro
     # Solo i due domini del manifest, e nient'altro, ha visto richieste dal browser.
-    assert {h for _m, h, _p in giro.b.richieste} <= {"turismatica.regione.umbria.it", "hostlab.umbriaround.it"}
+    assert {h for _m, h, _p in giro.b.richieste} <= {TURISMATICA, HOSTLAB, HOSTLAB_B, FUORI}
     rete = giro.d.chiama("list_network_requests", pageId=giro.pagina)
     domini = set(re.findall(r"https?://([\w.-]+)", rete))
-    assert domini <= {"turismatica.regione.umbria.it", "hostlab.umbriaround.it"}, rete
+    assert domini <= {TURISMATICA, HOSTLAB}, rete
 
 
 def test_dal_tasto_di_hostlab(giro: Giro) -> None:
     _quasi_pieno(giro.b)
-    giro.d.chiama("new_page", url="https://hostlab.umbriaround.it/report")
-    h = giro.trova("hostlab.umbriaround.it")
+    giro.d.chiama("new_page", url=f"https://{HOSTLAB}/report")
+    h = giro.trova(HOSTLAB)
     assert giro.d.valuta(h, "() => document.documentElement.dataset.istatUploader")
     giro.d.valuta(h, "() => { document.getElementById('tasto').click(); return 1; }")
     giro.d.aspetta(h, "() => document.getElementById('esito').textContent === 'estensione'", 15)
@@ -366,11 +370,30 @@ def test_dal_tasto_di_hostlab(giro: Giro) -> None:
     assert giro.d.valuta(giro.pagina, """() => !!document.querySelector('[data-azione="avvia"]')""")
 
 
+def test_ogni_tenant_ritira_dal_proprio_indirizzo(giro: Giro) -> None:
+    giro.d.chiama("new_page", url=f"https://{HOSTLAB_B}/report")
+    h = giro.trova(HOSTLAB_B)
+    giro.d.valuta(h, "() => { document.getElementById('tasto').click(); return 1; }")
+    giro.d.aspetta(h, "() => document.getElementById('esito').textContent === 'estensione'", 15)
+    giro.pagina = giro.trova(giro.url)
+    giro.schermata("spid", 20)
+    assert [r["host"] for r in giro.b.ritiri] == [HOSTLAB_B]
+
+
+def test_fuori_da_umbriaround_il_ponte_non_c_e(giro: Giro) -> None:
+    giro.d.chiama("new_page", url=f"https://{FUORI}/report")
+    h = giro.trova(FUORI)
+    assert not giro.d.valuta(h, "() => document.documentElement.dataset.istatUploader")
+    giro.d.valuta(h, """() => { window.postMessage({tipo:"istat-uploader:carica", gettone:"9.""" + "c" * 43 + """"}, location.origin); return 1; }""")
+    time.sleep(1)
+    assert giro.url not in giro.d.pagine().values() and giro.b.ritiri == []
+
+
 def test_gettone_scaduto_lo_dice_hostlab(giro: Giro) -> None:
     giro.apri()
-    h_url = "https://hostlab.umbriaround.it/report"
+    h_url = f"https://{HOSTLAB}/report"
     giro.d.chiama("new_page", url=h_url)
-    h = giro.trova("hostlab.umbriaround.it")
+    h = giro.trova(HOSTLAB)
     giro.d.valuta(h, """() => { window.postMessage({tipo:"istat-uploader:carica", gettone:"9.""" + "c" * 43 + """"}, location.origin); return 1; }""")
     giro.d.aspetta(giro.pagina, """() => document.getElementById("app").dataset.schermata === "errore" """, 15)
     assert "scaduto" in str(giro.d.valuta(giro.pagina, TESTO))
@@ -378,8 +401,8 @@ def test_gettone_scaduto_lo_dice_hostlab(giro: Giro) -> None:
 
 def test_un_gettone_storto_non_passa(giro: Giro) -> None:
     giro.apri()
-    giro.d.chiama("new_page", url="https://hostlab.umbriaround.it/report")
-    h = giro.trova("hostlab.umbriaround.it")
+    giro.d.chiama("new_page", url=f"https://{HOSTLAB}/report")
+    h = giro.trova(HOSTLAB)
     n = len(giro.b.ritiri)
     risposta = giro.d.valuta(h, """() => new Promise((ok) => {
       window.addEventListener("message", (e) => { if (e.data?.tipo === "istat-uploader:risposta") ok(e.data); });
@@ -391,8 +414,8 @@ def test_un_gettone_storto_non_passa(giro: Giro) -> None:
 def test_hostlab_senza_estensione_propone_l_exe(giro: Giro, id_estensione: str) -> None:
     giro.d.chiama("uninstall_extension", id=id_estensione)
     try:
-        giro.d.chiama("new_page", url="https://hostlab.umbriaround.it/report")
-        h = giro.trova("hostlab.umbriaround.it")
+        giro.d.chiama("new_page", url=f"https://{HOSTLAB}/report")
+        h = giro.trova(HOSTLAB)
         assert not giro.d.valuta(h, "() => document.documentElement.dataset.istatUploader")
         giro.d.valuta(h, "() => { document.getElementById('tasto').click(); return 1; }")
         giro.d.aspetta(h, "() => document.getElementById('esito').textContent === 'proposta'", 10)

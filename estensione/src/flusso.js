@@ -117,18 +117,18 @@ export class Flusso {
   // ─── il pacchetto di HostLab ────────────────────────────────────────────
 
   /** Il gettone arrivato dal tasto. Durante un giro si rifiuta: se poi scade, HostLab lo dice. */
-  usaGettone(gettone) {
+  usaGettone(gettone, server) {
     if (this.occupato) return { ok: false, occupato: true };
-    this.lavora(() => this.giroPacchetto(gettone));
+    this.lavora(() => this.giroPacchetto(gettone, server));
     return { ok: true };
   }
 
-  async giroPacchetto(gettone) {
+  async giroPacchetto(gettone, server) {
     this.dimentica();
     this.mostra("lavoro", { titolo: "Ritiro il mese da HostLab", dettaglio: "Un momento: poi ti mostro cosa farò." });
     let p;
     try {
-      p = await this.ritira(gettone);
+      p = await this.ritira(gettone, server);
     } catch (e) {
       if (!(e instanceof this.PacchettoNonDisponibile)) throw e;
       this.reg.avviso("pacchetto non ritirato");

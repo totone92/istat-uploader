@@ -29,11 +29,13 @@ PRIMEFACES = FIXTURE / "primefaces-6.2"
 DIST = RADICE / "dist" / "banco"
 PORTA = 18443
 TURISMATICA = "turismatica.regione.umbria.it"
-HOSTLAB = "hostlab.umbriaround.it"
+HOSTLAB = "tenanta.umbriaround.it"
+HOSTLAB_B = "tenantb.umbriaround.it"
+FUORI = "male.example"
 STRUTTURE = {"12345": "TENANT A", "12341": "TENANT B", "12340": "TENANT C"}
 SOSTITUZIONI = ("CASA LAVANDA", "Casa Lavanda")
 ARGOMENTI_CHROMIUM = [
-    f"--host-resolver-rules=MAP {TURISMATICA} 127.0.0.1:{PORTA}, MAP {HOSTLAB} 127.0.0.1:{PORTA}, "
+    f"--host-resolver-rules=MAP {TURISMATICA} 127.0.0.1:{PORTA}, MAP *.umbriaround.it 127.0.0.1:{PORTA}, MAP {FUORI} 127.0.0.1:{PORTA}, "
     "MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
     "--ignore-certificate-errors",
     "--no-sandbox",
@@ -105,6 +107,7 @@ class Banco:
         self.richieste: list[tuple[str, str, str]] = []
         self.gettoni: set[str] = set()
         self.pacchetto = zip_del_mese()
+        self.host_corrente = ""
         self._server: ThreadingHTTPServer | None = None
 
     # ── ciclo di vita ───────────────────────────────────────────────
@@ -116,7 +119,7 @@ class Banco:
             subprocess.run([
                 "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "3650",
                 "-keyout", cert, "-out", cert, "-subj", "/CN=banco-di-prova",
-                "-addext", f"subjectAltName=DNS:{TURISMATICA},DNS:{HOSTLAB}",
+                "-addext", f"subjectAltName=DNS:{TURISMATICA},DNS:*.umbriaround.it,DNS:{FUORI}",
             ], check=True, capture_output=True)
         banco = self
 
@@ -138,8 +141,9 @@ class Banco:
             def _gira(self, metodo: str) -> None:
                 host = (self.headers.get("Host") or "").split(":")[0]
                 banco.richieste.append((metodo, host, self.path))
+                banco.host_corrente = host
                 corpo = self.rfile.read(int(self.headers.get("Content-Length") or 0))
-                fn = banco.hostlab if host == HOSTLAB else banco.turismatica
+                fn = banco.turismatica if host == TURISMATICA else banco.hostlab
                 self._rispondi(*fn(metodo, self.path, self.headers, corpo))
 
             def do_GET(self) -> None:  # noqa: N802
@@ -177,7 +181,7 @@ class Banco:
         if u == "/turismatica/pacchetto" and metodo == "POST":
             autorizza = intest.get("Authorization", "")  # type: ignore[attr-defined]
             gettone = autorizza.removeprefix("Bearer ")
-            self.ritiri.append({"gettone": gettone, "cookie": intest.get("Cookie"),  # type: ignore[attr-defined]
+            self.ritiri.append({"host": self.host_corrente, "gettone": gettone, "cookie": intest.get("Cookie"),  # type: ignore[attr-defined]
                                 "origine": intest.get("Origin")})  # type: ignore[attr-defined]
             if gettone not in self.gettoni:
                 return 410, "application/json", json.dumps({"errore": "Il gettone è scaduto: premi di nuovo."}).encode()

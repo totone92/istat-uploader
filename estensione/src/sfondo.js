@@ -3,7 +3,7 @@
 // nella scheda. Il gettone arriva solo dal ponte, e il ponte gira solo su HostLab.
 
 const PAGINA = "carica.html";
-const SERVER_HOSTLAB = "https://hostlab.umbriaround.it";
+const FORMA_SERVER = /^https:\/\/(?:[a-z0-9-]+\.)+umbriaround\.it$/;
 const FORMA_GETTONE = /^\d{1,12}\.[A-Za-z0-9_-]{32,64}$/;
 
 async function schedaAperta() {
@@ -13,17 +13,17 @@ async function schedaAperta() {
   return c ?? null;
 }
 
-async function apri(gettone, vicino) {
+async function apri(gettone, server, vicino) {
   const aperta = await schedaAperta();
   if (aperta) {
     const risposta = gettone
-      ? await chrome.runtime.sendMessage({ tipo: "gettone", gettone }).catch(() => ({ ok: false }))
+      ? await chrome.runtime.sendMessage({ tipo: "gettone", gettone, server }).catch(() => ({ ok: false }))
       : { ok: true };
     await chrome.tabs.update(aperta.tabId, { active: true });
     await chrome.windows.update(aperta.windowId, { focused: true }).catch(() => {});
     return risposta;
   }
-  const url = chrome.runtime.getURL(PAGINA) + (gettone ? `#gettone=${gettone}` : "");
+  const url = chrome.runtime.getURL(PAGINA) + (gettone ? `#${new URLSearchParams({ gettone, server })}` : "");
   // Accanto alla scheda di partenza se si può: la posizione non vale un'apertura mancata.
   try {
     await chrome.tabs.create({ url, ...(vicino ? { index: vicino.index + 1, windowId: vicino.windowId } : {}) });
@@ -34,19 +34,19 @@ async function apri(gettone, vicino) {
 }
 
 chrome.action.onClicked.addListener((tab) => {
-  apri(null, tab).catch((e) => console.error(e));
+  apri(null, null, tab).catch((e) => console.error(e));
 });
 
 chrome.runtime.onMessage.addListener((messaggio, mittente, rispondi) => {
   if (messaggio?.tipo !== "carica") return false;
-  if (mittente.id !== chrome.runtime.id || mittente.origin !== SERVER_HOSTLAB
+  if (mittente.id !== chrome.runtime.id || !FORMA_SERVER.test(mittente.origin ?? "")
     || !FORMA_GETTONE.test(messaggio.gettone ?? "")) {
     rispondi({ ok: false, errore: "non valido" });
     return false;
   }
   (async () => {
     try {
-      rispondi(await apri(messaggio.gettone, mittente.tab));
+      rispondi(await apri(messaggio.gettone, mittente.origin, mittente.tab));
     } catch (e) {
       console.error(e);
       rispondi({ ok: false, errore: "non aperta" });

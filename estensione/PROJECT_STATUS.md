@@ -1,10 +1,12 @@
 # Stato dell'estensione (2 novembre 2026)
 
-Ramo locale `estensione-chrome`, non pubblicato: un push su `main` rifarebbe la build dell'exe.
+Ramo `estensione-chrome` su GitHub, versione 0.1.1. Non fonderlo in `main` senza Marco: rifarebbe la build dell'exe.
+Privacy policy: https://totone92.github.io/istat-uploader/ (ramo `gh-pages`). Passi delle dashboard: `PUBBLICAZIONE.md`.
 
 ## Dove riprendere
 
-- **Manca solo la prova vera**: Marco, con SPID, prima in prova e poi in modalità vera, su un mese solo.
+- **La prova in modalità prova è andata** sul portale vero il 2/11 (v0.1.0): SPID, 8 strutture lette, ingresso da
+  prehome, dialog aperto e file accettato fino a «Carica» pronto. **Manca la modalità vera**, su un mese solo.
   Se qualcosa non va: «Dettagli» → «Scarica il registro», più le copie ripulite delle pagine non lette.
 - **HostLab**: la modifica al tasto è in `HOSTLAB.md`, per la sessione serale.
 - **Server MCP di DevTools in sessione**: è in `.mcp.json` nella radice del repo. Una sessione già aperta non lo
@@ -16,8 +18,7 @@ Ramo locale `estensione-chrome`, non pubblicato: un push su `main` rifarebbe la 
 
 Provato su Chromium 156, con PrimeFaces 6.2 vero e **risposte del server JSF scritte da noi**: lettura, prova,
 vera con i byte dei file, sessione scaduta, zip, gettone, comunicazione mensile.
-Non provato sul portale vero: login SPID e ritorno, dialog di caricamento (compreso il modulo che si rifà
-all'apertura), conferma del caricamento, frecce dei mesi accese, scheda «Movimento periodo chiuso», comunicazione.
+Non provato sul portale vero: il caricamento e la sua conferma, i giorni dopo il primo, frecce dei mesi accese, scheda «Movimento periodo chiuso», comunicazione.
 Non provato su Chrome di marca, Edge, Windows e Mac: stesso motore, ma nessun giro fatto lì.
 
 ## Web Store: cosa è stato verificato alle fonti (2/11/2026)
@@ -28,8 +29,8 @@ Non provato su Chrome di marca, Edge, Windows e Mac: stesso motore, ma nessun gi
   esserlo anche una persona fisica. Al trader chiedono nome legale, telefono verificato via SMS e indirizzo, e
   **li pubblicano in fondo alla scheda**. Da non-trader i clienti vengono informati che non hanno i diritti
   dei consumatori. Le pagine non dicono cosa succede a chi dichiara il falso né se la pubblicazione privata cambi l'obbligo.
-- **Prova con due clienti**: `Private` (per account Google indicati) o `Unlisted` (chiunque abbia il link). Stessa revisione.
-- **Revisione**: di solito entro tre giorni; oltre due settimane si scrive al supporto. Privacy policy: serve, con link nel campo apposito.
+- **Prova con due clienti**: `Private`, con i tester nell'account (senza un massimo dichiarato, Workspace non serve). Stessa revisione.
+- **Revisione**: «within a few days», fino a qualche settimana; oltre tre settimane si scrive al supporto. Privacy policy: serve, con link nel campo apposito.
 - **Edge Add-ons**: gratis, `Hidden` come modalità nascosta, certificazione fino a 7 giorni lavorativi, privacy
   policy richiesta; niente su trader o DSA nelle pagine lette. Individual/Company non si cambia dopo.
   Da Edge si può anche installare dal Chrome Web Store, ma non l'ho verificato alla fonte.

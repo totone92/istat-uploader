@@ -2,7 +2,7 @@
 
 Prova: caricare il mese su Turismatica dentro il Chrome del gestore, dopo il suo SPID, senza exe.
 Si lancia: `python estensione/strumenti/pacchetto.py`, poi `chrome://extensions` → Modalità sviluppatore → «Carica estensione non pacchettizzata» sulla cartella estratta.
-È emerso: guidare la pagina funziona col PrimeFaces 6.2 vero sul banco; manca solo la prova sul portale vero, con SPID (vedi `PROJECT_STATUS.md`).
+È emerso: sul portale vero, con SPID, la modalità prova arriva fino a «Carica» pronto; manca il caricamento vero (vedi `PROJECT_STATUS.md`). Pubblicazione: `PUBBLICAZIONE.md`.
 
 ## La prova in modalità sviluppatore
 

@@ -16,8 +16,8 @@ aperta, e si salva sul computer solo se il gestore lo scarica. Sul computer, nel
 restano solo numero, nome e codice CIN delle strutture e gli abbinamenti confermati fra file e struttura.
 
 **A chi vanno.** I file vanno solo a Turismatica, quando il gestore avvia il caricamento in modalità vera.
-Chi usa HostLab ritira il pacchetto del mese direttamente da HostLab, presentando un gettone monouso.
+Chi usa HostLab ritira il pacchetto del mese direttamente dal proprio indirizzo HostLab, presentando un gettone monouso.
 Nessun dato va a Fortitudo o a terzi. L'estensione non contiene analisi d'uso, pubblicità o telemetria.
 
 **Domande e cancellazione.** Per togliere tutto basta rimuovere l'estensione dal browser.
-Per domande: [CONTATTO DA INSERIRE].
+Per domande: privacy@fortitudolab.it.

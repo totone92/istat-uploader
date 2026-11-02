@@ -64,9 +64,9 @@ Le schermate hanno dati inventati (TENANT A) e le rifà il test `test_schermate_
 |------------|------|---------------|
 | `scripting` | permissions | Serve a guidare la pagina dei movimenti di Turismatica nella scheda aperta dal gestore: legge quali giorni sono già caricati, sceglie la struttura, apre la finestra di caricamento del giorno, inserisce il file scelto dal gestore e preme «Carica» solo in modalità vera, dopo due conferme. Tutto il codice eseguito è dentro il pacchetto. |
 | `https://turismatica.regione.umbria.it/*` | host_permissions | È il portale su cui il gestore carica i movimenti. Serve per leggere le pagine dei movimenti, riconoscere quando è entrato con SPID o CIE, e caricare i file del giorno. |
-| `https://hostlab.umbriaround.it/*` | host_permissions | Serve a chi usa il gestionale HostLab: il tasto «Carica su Turismatica» passa un gettone monouso e l'estensione ritira da quel server il pacchetto del mese. Serve anche il piccolo script sulla stessa pagina, che segnala a HostLab che l'estensione è installata e riceve il gettone: non legge il contenuto della pagina. |
+| `https://*.umbriaround.it/*` | host_permissions | Ogni cliente del gestionale HostLab ha il proprio indirizzo su un sottodominio di umbriaround.it, e i clienti nuovi ne ricevono uno nuovo. Il tasto «Carica su Turismatica» di HostLab passa all'estensione un gettone monouso e l'estensione ritira il pacchetto del mese da quello stesso indirizzo. Sulle stesse pagine gira un piccolo script che segnala a HostLab che l'estensione è installata e riceve il gettone: non legge il contenuto della pagina. Il dominio umbriaround.it è del gestionale, e l'accesso è limitato a quello. |
 
-Lo script di contenuto gira solo su `hostlab.umbriaround.it`. **Remote code**: No, tutto il codice è nel pacchetto.
+Lo script di contenuto gira solo sui sottodomini di `umbriaround.it`. Nessun permesso facoltativo: oggi non ci sono domini propri dei clienti. Si aggiungerà quando servirà, perché aggiungerne uno facoltativo non disattiva l'estensione a chi l'ha già. **Remote code**: No, tutto il codice è nel pacchetto.
 
 ## Privacy & Data Use
 
@@ -91,11 +91,11 @@ Da spuntare nel modulo, tutte vere:
 
 ## Privacy Policy
 
-**Privacy Policy URL**: ⬜ da pubblicare. Il testo è `PRIVACY.md` (mettere il contatto); serve un indirizzo pubblico.
+**Privacy Policy URL**: ✅ https://totone92.github.io/istat-uploader/ (ramo `gh-pages`; la fonte è `PRIVACY.md`, da ricopiare se cambia).
 
 ## Distribution
 
-**Visibility**: Private (trusted testers) per i due clienti; poi Unlisted o Public. Tutte passano la stessa revisione.
+**Visibility**: Private con trusted testers (i due clienti e Marco); Public a gennaio. Stessa revisione. I passi sono in `PUBBLICAZIONE.md`.
 **Regions**: Italia
 
 ## Developer Info
@@ -109,7 +109,8 @@ Da spuntare nel modulo, tutte vere:
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
-| 0.1.0 | 2026-11-02 | Prima versione: prova e vera, zip a mano e tasto di HostLab, comunicazione mensile | Draft |
+| 0.1.1 | 2026-11-02 | Indirizzi dei tenant su umbriaround.it | Draft |
+| 0.1.0 | 2026-11-02 | Prima versione: prova e vera, zip a mano e tasto di HostLab, comunicazione mensile (mai inviata allo store) | Draft |
 
 ## Review Notes
 

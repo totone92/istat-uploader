@@ -1,22 +1,25 @@
 // Il ritiro del pacchetto da HostLab col gettone monouso (da_hostlab.py). Il server è
-// scritto qui, non viene mai da fuori: nessuna pagina può far caricare uno zip di chi vuole.
+// l'indirizzo del tenant che ha premuto il tasto, garantito dal browser, e deve stare su
+// umbriaround.it: nessun'altra pagina può far caricare uno zip di chi vuole.
 // Il pacchetto resta in memoria, nella pagina dell'estensione, e non va da nessun'altra parte.
 
 import { DIMENSIONE_MASSIMA_ZIP } from "./logica/sorgente.js";
 
-export const SERVER = "https://hostlab.umbriaround.it";
+const FORMA_SERVER = /^https:\/\/(?:[a-z0-9-]+\.)+umbriaround\.it$/;
 const PERCORSO = "/turismatica/pacchetto";
 const FORMA_GETTONE = /^\d{1,12}\.[A-Za-z0-9_-]{32,64}$/;
 
 export const gettoneValido = (g) => typeof g === "string" && FORMA_GETTONE.test(g);
 
+export const serverValido = (s) => typeof s === "string" && FORMA_SERVER.test(s);
+
 export class PacchettoNonDisponibile extends Error {}
 
-export async function ritiraPacchetto(gettone) {
-  if (!gettoneValido(gettone)) throw new PacchettoNonDisponibile("HostLab ha mandato un gettone non valido: premi di nuovo «Carica su Turismatica».");
+export async function ritiraPacchetto(gettone, server) {
+  if (!gettoneValido(gettone) || !serverValido(server)) throw new PacchettoNonDisponibile("HostLab ha mandato un gettone non valido: premi di nuovo «Carica su Turismatica».");
   let r;
   try {
-    r = await fetch(SERVER + PERCORSO, {
+    r = await fetch(server + PERCORSO, {
       method: "POST", credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer",
       headers: { Authorization: `Bearer ${gettone}` },
     });

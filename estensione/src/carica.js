@@ -2,7 +2,7 @@
 // voce dell'uploader (ui/app.js). Tutto il testo che arriva da fuori passa da esc().
 
 import { Flusso, memoriaLocale } from "./flusso.js";
-import { gettoneValido, PacchettoNonDisponibile, ritiraPacchetto } from "./hostlab.js";
+import { gettoneValido, PacchettoNonDisponibile, ritiraPacchetto, serverValido } from "./hostlab.js";
 import { oggiLocale } from "./logica/periodo.js";
 import { Registro } from "./logica/registro.js";
 import { DIMENSIONE_MASSIMA_ZIP } from "./logica/sorgente.js";
@@ -415,16 +415,18 @@ window.addEventListener("beforeunload", (e) => {
 
 chrome.runtime.onMessage.addListener((m, _mittente, rispondi) => {
   if (m?.tipo !== "gettone") return false;
-  rispondi(gettoneValido(m.gettone) ? flusso.usaGettone(m.gettone) : { ok: false });
+  rispondi(gettoneValido(m.gettone) && serverValido(m.server) ? flusso.usaGettone(m.gettone, m.server) : { ok: false });
   return false;
 });
 
 disegna();
 
 // Il gettone arrivato con l'apertura della scheda: si toglie subito dall'indirizzo.
-const arrivo = /^#gettone=(.+)$/.exec(location.hash);
-if (arrivo) {
+if (location.hash) {
+  const arrivo = new URLSearchParams(location.hash.slice(1));
   history.replaceState(null, "", location.pathname);
-  if (gettoneValido(arrivo[1])) flusso.usaGettone(arrivo[1]);
+  if (gettoneValido(arrivo.get("gettone")) && serverValido(arrivo.get("server"))) {
+    flusso.usaGettone(arrivo.get("gettone"), arrivo.get("server"));
+  }
 }
 
