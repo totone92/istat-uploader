@@ -74,7 +74,7 @@ Preparata per il primo giro vero di novembre.
   ⚠️ Com'è fatto il ritorno al login sul portale vero **non l'abbiamo visto**: il
   riconoscimento è provato col login finto dei test.
 - **Versione nuova** (`aggiornamento.py`): legge l'ultima Release, solo avviso.
-- **Firma**: il passo c'è, spento (`BUILD_WINDOWS.md`, «La firma»).
+- **Firma**: pronta nel giro, si accende coi segreti (`BUILD_WINDOWS.md`, «La firma»).
 
 ## v1.3.2 — la tabella vista da Chrome (21/10/2026)
 

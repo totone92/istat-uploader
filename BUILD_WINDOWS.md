@@ -42,8 +42,9 @@ Solo se GitHub non è raggiungibile o se vuoi rifarlo tu.
 
 ## Se Windows lo blocca
 
-L'.exe **non è firmato** (la firma costa e serve un certificato aziendale):
-Windows non lo conosce e prova a fermarlo. È normale.
+Finché l'.exe **non è firmato** (vedi «La firma») Windows non lo conosce e prova a
+fermarlo. Se sul PC è attivo **Smart App Control** il blocco non si può aggirare per un
+programma solo: serve la versione firmata.
 
 - **Il browser dice «file non scaricato comunemente»**: tre puntini accanto al
   download → **Mantieni** (Edge: «Mostra altro» → «Mantieni comunque»).
@@ -66,32 +67,41 @@ Windows non lo conosce e prova a fermarlo. È normale.
 
 ---
 
-## La firma (spenta fino al certificato)
+## La firma
 
-Il giro di GitHub ha già il passo «Firma dell'eseguibile», **spento**. Non è mai
-stato eseguito: va provato al primo certificato, con un giro a mano (Actions →
-«Build Windows» → Run workflow) prima di un tag. Cosa servirà, da gennaio 2027:
+Il giro di GitHub firma con **SSL.com, certificato IV (persona fisica) + eSigner**, in cloud,
+senza chiavette. Firma sui tag e sui giri a mano (Actions → «Build Windows» → Run workflow);
+i giri su `main` restano non firmati per non consumare il piano. Ogni giro usa 8 firme: i 5
+binari interni senza firma, l'.exe, il disinstallatore e l'installer.
 
-1. **La partita IVA** e il **certificato di firma del codice** intestato a
-   quell'attività, comprato da un'autorità riconosciuta da Windows.
-2. **Attenzione a come arriva.** Le regole delle autorità, dal giugno 2023,
-   vogliono la chiave su un dispositivo o in un servizio cloud, non in un file:
-   il passo com'è scritto (`signtool` con un `.pfx`) funziona solo se
-   l'autorità consegna un `.pfx`. Con un servizio cloud (quelli dei venditori, o
-   Azure Artifact Signing) le righe di `signtool` vanno sostituite con il loro
-   comando, e i segreti con le loro credenziali. Conviene deciderlo **prima**
-   di comprare: serve un certificato che si possa usare da un giro di GitHub, senza
-   una chiavetta fisica attaccata a un PC.
-3. Su GitHub (Settings → Secrets and variables → Actions):
-   - segreti `FIRMA_PFX_BASE64` (il `.pfx` in base64) e `FIRMA_PFX_PASSWORD`;
-   - variabile `FIRMA_ATTIVA` = `true`. È l'interruttore: senza, il passo si salta.
+**Segreti** (Settings → Secrets and variables → Actions): `ESIGNER_USERNAME`,
+`ESIGNER_PASSWORD`, `ESIGNER_CREDENTIAL_ID`, `ESIGNER_TOTP_SECRET`. Se ne manca uno la build
+esce non firmata con un avviso nel log, e non si rompe.
 
-Il passo firma con marca temporale (la firma resta valida anche dopo la scadenza
-del certificato) e controlla il risultato con `signtool verify`: se la firma non
-riesce, il giro si ferma e non esce nessun `.exe`.
+**Cosa controlla il giro**: `signtool verify /pa /tw` su .exe e installer (catena valida,
+marca temporale presente) e `scripts/firma_pe.py` sui binari dentro l'.exe. Una firma che non
+riesce o non si verifica ferma il giro.
 
-La firma toglie «autore sconosciuto», ma **non** fa sparire SmartScreen subito: la
-reputazione si costruisce con i download, e all'inizio l'avviso può restare.
+**Perché anche i binari interni.** Smart App Control controlla ogni DLL, `.pyd` ed eseguibile
+che parte, compresi quelli che PyInstaller estrae all'avvio: firmare solo il guscio non basta.
+
+**Cosa non fa la firma.** Smart App Control la accetta subito; SmartScreen no: la reputazione
+si accumula sull'identità del firmatario con i download (settimane, centinaia di installazioni
+pulite, dice Microsoft) e all'inizio l'avviso può restare. Un certificato EV non accorcia più
+questa strada. Cambiare identità di firma (persona → azienda) riparte da zero.
+
+**Prove su Windows.** Sulla VM si attiva con `VerifiedAndReputablePolicyState=1`, ma ⚠️ è un
+passo senza ritorno automatico (al riavvio resta attivo) e blocca il guest agent, che non è
+firmato: dopo si lavora da console. Le firme di Defender sulla VM vanno aggiornate prima di
+fidarsi di una scansione.
+
+### Segnalare un falso positivo a Microsoft
+
+Solo se Defender segnala davvero il file: alla v1.6.0, con le firme del 1° novembre 2026, non
+segnala niente, e per SmartScreen Microsoft dice che non esiste un invio manuale.
+<https://www.microsoft.com/en-us/wdsi/filesubmission> → «Software developer», prodotto
+«Microsoft Defender Antivirus», «Incorrectly detected as malware/malicious», il nome della
+minaccia letto in Cronologia protezione e il file dalla Release (massimo 50 MB).
 
 ## Come funziona, in breve
 

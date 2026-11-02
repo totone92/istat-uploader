@@ -10,6 +10,16 @@ AppId={{6C0A9E3B-4D1F-4E57-9B5A-2F7C1D8E6A10}
 AppName=Istat Uploader
 AppVersion={#Versione}
 AppPublisher=Fortitudo
+AppPublisherURL=https://github.com/totone92/istat-uploader
+VersionInfoVersion={#Versione}
+VersionInfoCompany=Fortitudo
+VersionInfoDescription=Installazione di Istat Uploader
+VersionInfoProductName=Istat Uploader
+; Col certificato: ISCC /DFirma "/Sfirma=comando $f". Firma disinstallatore e installer.
+#ifdef Firma
+SignTool=firma
+SignedUninstaller=yes
+#endif
 DefaultDirName={localappdata}\Programs\IstatUploader
 DefaultGroupName=Istat Uploader
 DisableProgramGroupPage=yes

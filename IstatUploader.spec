@@ -16,11 +16,49 @@ qui. Il prezzo è che a ogni avvio si estrae in una cartella temporanea, quindi
 la prima schermata arriva dopo qualche secondo. Per la strada opposta (avvio
 immediato, ma una cartella da scompattare) vedi `ONEDIR` qui sotto.
 """
+import re
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.win32.versioninfo import (
+    FixedFileInfo,
+    StringFileInfo,
+    StringStruct,
+    StringTable,
+    VarFileInfo,
+    VarStruct,
+    VSVersionInfo,
+)
+
+sys.path.insert(0, SPECPATH)  # noqa: F821
+from scripts.firma_pe import firma_interni, togli_inutili  # noqa: E402
 
 NOME = "IstatUploader"
+_VERSIONE = re.search(
+    r'^__version__ = "(\d+)\.(\d+)\.(\d+)"',
+    (Path(SPECPATH) / "uploader_turismatica" / "__init__.py").read_text(encoding="utf-8"),  # noqa: F821
+    re.MULTILINE,
+).groups()
+_V = ".".join(_VERSIONE)
+_V4 = (*map(int, _VERSIONE), 0)
+# Editore e versione nelle proprietà del file: un .exe anonimo è più sospetto per gli antivirus.
+_INFO = VSVersionInfo(
+    ffi=FixedFileInfo(filevers=_V4, prodvers=_V4),
+    kids=[
+        StringFileInfo([StringTable("041004B0", [
+            StringStruct("CompanyName", "Fortitudo"),
+            StringStruct("FileDescription", "Istat Uploader"),
+            StringStruct("FileVersion", _V),
+            StringStruct("InternalName", NOME),
+            StringStruct("LegalCopyright", "Licenza MIT"),
+            StringStruct("OriginalFilename", f"{NOME}.exe"),
+            StringStruct("ProductName", "Istat Uploader"),
+            StringStruct("ProductVersion", _V),
+        ])]),
+        VarFileInfo([VarStruct("Translation", [0x0410, 0x04B0])]),
+    ],
+)
 _ICONA = Path(SPECPATH) / "assets" / f"{NOME}.ico"  # noqa: F821 — lo dà PyInstaller
 
 ONEDIR = False        # True = cartella + .exe dentro, invece del file unico
@@ -73,6 +111,11 @@ a = Analysis(
     ],
     noarchive=False,
 )
+# Via ciò che non parte mai; col certificato pronto, si firma ciò che resta senza firma
+# (scripts/firma_pe.py). Senza certificato non cambia altro.
+_FIRMATI = Path(SPECPATH) / "build" / "firmati"  # noqa: F821
+a.binaries = firma_interni(togli_inutili(a.binaries), _FIRMATI)
+a.datas = firma_interni(togli_inutili(a.datas), _FIRMATI)
 pyz = PYZ(a.pure)
 
 _comune = dict(
@@ -83,6 +126,7 @@ _comune = dict(
                             # positivo antivirus: qui non vale lo scambio.
     console=False,          # è un'app con finestra, non un terminale
     icon=str(_ICONA) if _ICONA.is_file() else None,
+    version=_INFO,
 )
 
 if ONEDIR:

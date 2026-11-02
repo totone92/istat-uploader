@@ -9,8 +9,9 @@
 #   insieme allo zip di prova (scripts/zip_di_prova.py: settembre 2026
 #   inventato, bloccato in modalità vera).
 #
-# Nessun segreto: usa solo il token che GitHub dà a ogni giro (github.token),
-# con il permesso di scrivere i contenuti solo nel passo della release.
+# Segreti: solo i quattro ESIGNER_* della firma, nei passi che firmano. Oltre a quelli,
+# il token che GitHub dà a ogni giro (github.token), con il permesso di scrivere i
+# contenuti solo nel passo della release.
 name: Build Windows
 
 on:
@@ -68,33 +69,52 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: python scripts/controlla_tag.py "${{ github.ref_name }}"
 
-      - name: Costruisco IstatUploader.exe
-        run: python -m PyInstaller IstatUploader.spec --noconfirm --clean
-
-      # ⚠️ SPENTO finché non c'è un certificato (gennaio 2027, con la partita IVA).
-      # Si accende con la variabile di repository FIRMA_ATTIVA=true e i due segreti
-      # FIRMA_PFX_BASE64 e FIRMA_PFX_PASSWORD: vedi BUILD_WINDOWS.md, «La firma».
-      # Sta prima delle autoverifiche, così queste provano l'.exe che esce davvero.
-      - name: Firma dell'eseguibile
-        if: ${{ vars.FIRMA_ATTIVA == 'true' }}
+      # La firma (BUILD_WINDOWS.md, «La firma»): solo sui tag e sui giri a mano, perché ogni
+      # giro consuma 8 firme del piano. Senza i quattro segreti la build esce non firmata,
+      # con un avviso. La versione di CodeSignTool è fissata col suo hash.
+      - name: La firma è pronta?
         shell: pwsh
         env:
-          FIRMA_PFX_BASE64: ${{ secrets.FIRMA_PFX_BASE64 }}
-          FIRMA_PFX_PASSWORD: ${{ secrets.FIRMA_PFX_PASSWORD }}
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+          ESIGNER_CREDENTIAL_ID: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
+          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
+          GIRO_DA_FIRMARE: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
         run: |
-          $pfx = Join-Path $env:RUNNER_TEMP "firma.pfx"
-          try {
-            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:FIRMA_PFX_BASE64))
-            $kit = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
-              Sort-Object FullName | Select-Object -Last 1
-            & $kit.FullName sign /f $pfx /p $env:FIRMA_PFX_PASSWORD /fd SHA256 `
-              /tr http://timestamp.digicert.com /td SHA256 dist\IstatUploader.exe
-            if ($LASTEXITCODE -ne 0) { throw "firma non riuscita" }
-            & $kit.FullName verify /pa dist\IstatUploader.exe
-            if ($LASTEXITCODE -ne 0) { throw "firma non valida" }
-          } finally {
-            Remove-Item $pfx -ErrorAction SilentlyContinue
+          if ($env:GIRO_DA_FIRMARE -ne "true") {
+            "::notice::Giro su main: non firmato, la firma si fa sui tag e sui giri a mano."
+            exit 0
           }
+          if (-not ($env:ESIGNER_USERNAME -and $env:ESIGNER_PASSWORD -and $env:ESIGNER_CREDENTIAL_ID -and $env:ESIGNER_TOTP_SECRET)) {
+            "::warning::Mancano i segreti ESIGNER_*: la build esce NON firmata."
+            exit 0
+          }
+          $zip = Join-Path $env:RUNNER_TEMP "codesigntool.zip"
+          $cartella = Join-Path $env:RUNNER_TEMP "codesigntool"
+          Invoke-WebRequest "https://github.com/SSLcom/CodeSignTool/releases/download/v1.3.2/CodeSignTool-v1.3.2-windows.zip" -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne "4AFC32E8B7F79BBE1DE7E4E7049AAAD4E0F754357613B9BBEC0E3052F06FD36B") { throw "CodeSignTool: hash inatteso" }
+          Expand-Archive $zip $cartella
+          "FIRMA_PRONTA=1" >> $env:GITHUB_ENV
+          "CODESIGNTOOL_DIR=$cartella" >> $env:GITHUB_ENV
+
+      - name: Costruisco IstatUploader.exe
+        env:
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+          ESIGNER_CREDENTIAL_ID: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
+          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
+        run: python -m PyInstaller IstatUploader.spec --noconfirm --clean
+
+      # Prima delle autoverifiche, così queste provano l'.exe che esce davvero.
+      - name: Firma dell'eseguibile
+        if: env.FIRMA_PRONTA == '1'
+        shell: pwsh
+        env:
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+          ESIGNER_CREDENTIAL_ID: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
+          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
+        run: scripts\firma.ps1 dist\IstatUploader.exe
 
       # L'.exe appena fatto controlla di avere tutto dentro (i moduli Selenium
       # caricati per nome, Selenium Manager, Tk). Non apre né Chrome né finestre.
@@ -150,12 +170,39 @@ jobs:
 
       - name: Costruisco l'installer
         shell: pwsh
+        env:
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+          ESIGNER_CREDENTIAL_ID: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
+          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
         run: |
           $v = python -c "import uploader_turismatica as u; print(u.__version__)"
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; if ($LASTEXITCODE -ne 0) { throw "Inno Setup non installato" } }
-          & $iscc "/DVersione=$v" installer\IstatUploader.iss
+          $firma = @()
+          if ($env:FIRMA_PRONTA -eq "1") {
+            $firma = "/DFirma", "/Sfirma=powershell -NoProfile -ExecutionPolicy Bypass -File $PWD\scripts\firma.ps1 `$f"
+          }
+          & $iscc "/DVersione=$v" @firma installer\IstatUploader.iss
           if ($LASTEXITCODE -ne 0) { throw "installer non costruito" }
+
+      # Catena valida fino a una radice di Windows e marca temporale, per .exe e installer;
+      # poi i binari dentro l'.exe, che Smart App Control controlla uno per uno.
+      - name: Verifica della firma
+        if: env.FIRMA_PRONTA == '1'
+        shell: pwsh
+        run: |
+          $kit = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName | Select-Object -Last 1
+          foreach ($f in "dist\IstatUploader.exe", "dist\IstatUploaderSetup.exe") {
+            $s = Get-AuthenticodeSignature $f
+            "$f : $($s.Status), $($s.SignerCertificate.Subject), marca: $($s.TimeStamperCertificate.Subject)" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
+            if (-not $s.TimeStamperCertificate) { throw "$f senza marca temporale" }
+            & $kit.FullName verify /pa /tw $f
+            if ($LASTEXITCODE -ne 0) { throw "$f : firma non valida" }
+          }
+          python scripts/firma_pe.py dist/IstatUploader.exe
+          if ($LASTEXITCODE -ne 0) { throw "binari interni senza firma" }
 
       # L'installer vero, come lo userà un gestore: senza amministratore, poi si guarda che
       # l'indirizzo punti all'.exe installato e che quell'.exe funzioni.
