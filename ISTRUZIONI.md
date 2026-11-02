@@ -10,10 +10,10 @@ Ti serve: il computer, SPID (o la carta d'identità elettronica) e cinque minuti
 ## Se usi HostLab
 
 Nel Report di HostLab, scheda ISTAT, premi **«Carica su Turismatica»**. La prima volta HostLab
-ti propone di scaricare `IstatUploaderSetup.exe`: aprilo, installalo (non chiede password) e
-premi di nuovo il tasto. Il programma si apre col mese già pronto: non devi cercare nessun file.
+ti propone di scaricare il programma: aprilo una volta (non chiede password) e premi di nuovo il
+tasto. Il programma si apre col mese già pronto: non devi cercare nessun file.
 
-Il resto è qui sotto. Se invece hai uno zip, il programma funziona anche senza installarlo.
+Il resto è qui sotto. Se hai uno zip, lo trascini nel programma.
 
 ---
 
@@ -21,8 +21,8 @@ Il resto è qui sotto. Se invece hai uno zip, il programma funziona anche senza 
 
 ### 1. Apri il programma
 
-Non c'è niente da installare: è **un file solo**. Salvalo dove vuoi — va
-benissimo il Desktop.
+È **un file solo**: aprilo con un doppio clic. Si sistema da solo sul tuo computer, senza
+chiederti la password, e lo ritrovi nel menu Start. Il file scaricato poi puoi cancellarlo.
 
 La prima volta Windows scrive **«Windows ha protetto il PC»**. È normale:
 succede a tutti i programmi nuovi che non sono famosi.

@@ -16,9 +16,11 @@ Python **non** serve (solo per la strada B).
    - **`IstatUploader.exe`** — il programma;
    - **`prova-settembre-2026.zip`** — file ISTAT **inventati**, per la prima
      prova. Non aprirlo: si trascina così com'è nel programma.
-3. Mettili sul Desktop o in una cartella tua (per esempio
-   `Documenti\IstatUploader`), non in `Programmi`: accanto all'.exe il programma
-   scrive il suo registro.
+3. Apri l'.exe: si copia in `%LOCALAPPDATA%\Programs\IstatUploader`, registra l'indirizzo con
+   cui HostLab lo apre (registro dell'utente, nessun UAC), crea il collegamento nel menu Start e
+   riparte da lì. A ogni avvio ricontrolla l'indirizzo. Chi ha la v1.6.0 installata passa alla
+   nuova aprendo l'.exe: sostituisce il vecchio programma, nessun doppione. Si toglie da
+   **Impostazioni → App installate** (strutture e impostazioni restano).
 
 Non serve un account GitHub. (Gli «artefatti» delle singole build, nella pagina
 Actions, sono lo stesso .exe ma si scaricano solo da entrati, e dopo 90 giorni
@@ -71,14 +73,14 @@ programma solo: serve la versione firmata.
 
 Il giro di GitHub firma con **SSL.com, certificato IV (persona fisica) + eSigner**, in cloud,
 senza chiavette. Firma sui tag e sui giri a mano (Actions → «Build Windows» → Run workflow);
-i giri su `main` restano non firmati per non consumare il piano. Ogni giro usa 8 firme: i 5
-binari interni senza firma, l'.exe, il disinstallatore e l'installer.
+i giri su `main` restano non firmati per non consumare il piano. Ogni giro usa 6 firme: i 5
+binari interni senza firma e l'.exe. Oggi è spenta: nessun segreto, nessun certificato comprato.
 
 **Segreti** (Settings → Secrets and variables → Actions): `ESIGNER_USERNAME`,
 `ESIGNER_PASSWORD`, `ESIGNER_CREDENTIAL_ID`, `ESIGNER_TOTP_SECRET`. Se ne manca uno la build
 esce non firmata con un avviso nel log, e non si rompe.
 
-**Cosa controlla il giro**: `signtool verify /pa /tw` su .exe e installer (catena valida,
+**Cosa controlla il giro**: `signtool verify /pa /tw` sull'.exe (catena valida,
 marca temporale presente) e `scripts/firma_pe.py` sui binari dentro l'.exe. Una firma che non
 riesce o non si verifica ferma il giro.
 
@@ -102,6 +104,13 @@ segnala niente, e per SmartScreen Microsoft dice che non esiste un invio manuale
 <https://www.microsoft.com/en-us/wdsi/filesubmission> → «Software developer», prodotto
 «Microsoft Defender Antivirus», «Incorrectly detected as malware/malicious», il nome della
 minaccia letto in Cronologia protezione e il file dalla Release (massimo 50 MB).
+
+## Il Microsoft Store
+
+Il giro produce anche `IstatUploader.msix` (artefatto): la build a cartella col manifest di
+`scripts/pacchetto_msix.py`. Microsoft lo firma alla pubblicazione, ed è la strada per chi ha
+Smart App Control. Nome ed editore vengono da Partner Center: variabili di repository
+`STORE_NOME`, `STORE_EDITORE`, `STORE_NOME_EDITORE`.
 
 ## Come funziona, in breve
 

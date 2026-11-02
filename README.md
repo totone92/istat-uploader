@@ -19,16 +19,17 @@ giornalieri: B&B, affittacamere, case vacanze, agriturismi, alberghi.
 1. Vai su **[Releases](https://github.com/totone92/istat-uploader/releases/latest)**.
 2. Sotto **Assets** scarica **`IstatUploader.exe`** e, per la prima prova,
    **`prova-settembre-2026.zip`**.
-3. Mettili sul Desktop o in una cartella tua, e apri l'.exe con un doppio clic.
+3. Apri l'.exe con un doppio clic. Si installa da solo nel tuo utente, senza chiedere la
+   password da amministratore, e compare nel menu Start. Il file scaricato poi puoi cancellarlo.
 
-Non c'è niente da installare. Ti servono Windows 10 o 11 e **Google Chrome**.
-La finestra usa WebView2, il componente di Edge già presente su Windows 10 e
-11; se mancasse, il programma lo dice e ti porta alla pagina per installarlo.
+Ti servono Windows 10 o 11 e **Google Chrome**. La finestra usa WebView2, il componente di Edge
+già presente su Windows 10 e 11; se mancasse, il programma lo dice e ti porta alla pagina per
+installarlo. Si toglie da **Impostazioni → App installate**.
 
 Al primo avvio Windows potrebbe dire **«Windows ha protetto il PC»**: il
 programma non è firmato. Clicca **«Ulteriori informazioni» → «Esegui
-comunque»**. Cosa fare se lo blocca l'antivirus →
-[`BUILD_WINDOWS.md`](BUILD_WINDOWS.md).
+comunque»**. Se è attivo **Smart App Control** il blocco non ha questa uscita: serve la versione
+dal Microsoft Store. Cosa fare se lo blocca l'antivirus → [`BUILD_WINDOWS.md`](BUILD_WINDOWS.md).
 
 ## Come funziona
 
