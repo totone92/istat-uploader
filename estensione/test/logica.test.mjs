@@ -89,6 +89,30 @@ test("il nome nel file, in utf-8 o cp1252", () => {
   assert.equal(idDalNome("schedine_istat_IT054_20261003.txt"), "IT054");
 });
 
+// I nomi che arrivano davvero: scaricati da beb (id beb numerico, tenant con beb), generati
+// da HostLab per chi non ha beb (CIN, o «hostlab» senza CIN), e quelli dello script originale.
+const FORMATI = {
+  beb: (g) => `schedine_istat_99001_202610${g}.txt`,
+  generato_cin: (g) => `schedine_istat_IT054039B403012345_202610${g}.txt`,
+  generato_senza_cin: (g) => `schedine_istat_hostlab_202610${g}.txt`,
+  script_originale: (g) => `${g}102026.txt`,
+};
+const ATTESO = { beb: "nome", generato_cin: "cin", generato_senza_cin: "nome", script_originale: "nome" };
+
+for (const [formato, nomeFile] of Object.entries(FORMATI)) {
+  test(`un mese intero nel formato ${formato}: ogni giorno al suo posto, una struttura sola`, async () => {
+    const giorni = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0"));
+    const file = await leggiZip(zip(giorni.map((g) => [`istat/${nomeFile(g)}`, `${"TENANT A".padEnd(255)}\r\n\r\ngiorno ${g}`])));
+    assert.deepEqual(nonRiconosciuti(file), []);
+    const gr = raggruppa(file, { marcatoreProva: false });
+    assert.equal(gr.length, 1);
+    assert.deepEqual([...gr[0].perGiorno.keys()].sort(), giorni.map((g) => `2026-10-${g}`));
+    const [a] = abbina(gr, TRE, {});
+    assert.equal(a.id, "12345");
+    assert.equal(a.motivo, ATTESO[formato]);
+  });
+}
+
 const gruppi = (nome, codice = "X1") => raggruppa([
   { nome: `schedine_istat_${codice}_20261001.txt`, byte: riga(nome) },
   { nome: `schedine_istat_${codice}_20261002.txt`, byte: riga(nome) },

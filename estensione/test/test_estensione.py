@@ -13,6 +13,7 @@ import sys
 import time
 import zipfile
 from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,9 @@ from banco import (  # noqa: E402
     zip_del_mese,
 )
 from mcp_devtools import DevTools, Errore  # noqa: E402
+
+sys.path.insert(0, str(RADICE / "scripts"))
+from zip_di_prova import GiornoTolm, RigaProvenienza, rendi  # noqa: E402
 
 pytestmark = pytest.mark.skipif(shutil.which("/snap/bin/chromium") is None, reason="serve Chromium")
 
@@ -277,6 +281,46 @@ def test_sessione_scaduta_a_meta_mette_in_pausa_e_riprende(giro: Giro) -> None:
     esito = giro.schermata("esito", 150)
     assert "5 giorni caricati" in esito
     assert [c["giorno"] for c in giro.b.caricamenti] == [27, 28, 29, 30, 31], "nessun giorno due volte"
+
+
+#: I nomi veri dei file nello zip di HostLab: scaricati da beb (id della struttura su beb)
+#: e generati da HostLab per chi non ha beb (CIN, o «hostlab» se il CIN non c'è).
+_FORMATI_HOSTLAB = {
+    "beb": "schedine_istat_99001_202610{g:02d}.txt",
+    "generato_cin": "schedine_istat_IT054039B403012345_202610{g:02d}.txt",
+    "generato_senza_cin": "schedine_istat_hostlab_202610{g:02d}.txt",
+}
+
+
+def _file_tolm(g: int) -> bytes:
+    """Un giorno nel tracciato vero, col renderer copiato da HostLab; numeri inventati."""
+    return rendi("TENANT A", GiornoTolm(
+        giorno=date(2026, 10, g), presenti_notte_precedente=2, arrivati=3, partiti=2,
+        presenti_notte=3, camere_occupate=2,
+        righe=(RigaProvenienza("PG", "PERUGIA", 1, 2), RigaProvenienza("RM", "ROMA", 2, 0)),
+    ))
+
+
+@pytest.mark.parametrize("formato", sorted(_FORMATI_HOSTLAB))
+def test_i_file_di_hostlab_e_di_beb_si_caricano_intatti(giro: Giro, formato: str) -> None:
+    _quasi_pieno(giro.b)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for g in range(1, 32):
+            z.writestr(_FORMATI_HOSTLAB[formato].format(g=g), _file_tolm(g))
+    giro.apri()
+    assert "26 giorni già presenti, 5 da caricare" in giro.fino_al_piano(buf.getvalue())
+    giro.premi("passa-vera")
+    giro.conferma_modale()
+    giro.d.aspetta(giro.pagina, """() => !!document.querySelector('[data-azione="avvia-vera"]')""", 5)
+    giro.premi("avvia-vera")
+    giro.conferma_modale()
+    assert "5 giorni caricati" in giro.schermata("esito", 150)
+    assert [c["giorno"] for c in giro.b.caricamenti] == [27, 28, 29, 30, 31]
+    for c in giro.b.caricamenti:
+        assert c["struttura"] == "12345"
+        assert c["file"] == _FORMATI_HOSTLAB[formato].format(g=c["giorno"])
+        assert c["byte"] == _file_tolm(c["giorno"])
 
 
 def test_il_buco_nei_file_ferma_il_giro(giro: Giro) -> None:

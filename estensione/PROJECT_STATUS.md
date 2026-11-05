@@ -1,10 +1,14 @@
-# Stato dell'estensione (2 novembre 2026)
+# Stato dell'estensione (5 novembre 2026)
 
 Ramo `estensione-chrome` su GitHub, versione 0.1.1. Non fonderlo in `main` senza Marco: rifarebbe la build dell'exe.
 Privacy policy: https://totone92.github.io/istat-uploader/ (ramo `gh-pages`). Passi delle dashboard: `PUBBLICAZIONE.md`.
 
 ## Dove riprendere
 
+- **Direzione del 5/11**: niente exe ai clienti e Web Store rinviato. Marco installa l'estensione a mano
+  («non pacchettizzata») sui PC dei clienti: zip `dist/IstatUploader-<versione>.zip` da
+  `strumenti/pacchetto.py`, guida e aggiornamento in `INSTALLAZIONE-A-MANO.md`. Una versione nuova va
+  estratta sempre nella stessa cartella, o cambia l'id e si perdono gli abbinamenti.
 - **La prova in modalità prova è andata** sul portale vero il 2/11 (v0.1.0): SPID, 8 strutture lette, ingresso da
   prehome, dialog aperto e file accettato fino a «Carica» pronto. **Manca la modalità vera**, su un mese solo.
   Se qualcosa non va: «Dettagli» → «Scarica il registro», più le copie ripulite delle pagine non lette.
@@ -17,7 +21,7 @@ Privacy policy: https://totone92.github.io/istat-uploader/ (ramo `gh-pages`). Pa
 ## Cosa è provato e cosa no
 
 Provato su Chromium 156, con PrimeFaces 6.2 vero e **risposte del server JSF scritte da noi**: lettura, prova,
-vera con i byte dei file, sessione scaduta, zip, gettone, comunicazione mensile.
+vera con i byte dei file (nei nomi di beb, generati con CIN e senza CIN), sessione scaduta, zip, gettone, comunicazione mensile.
 Non provato sul portale vero: il caricamento e la sua conferma, i giorni dopo il primo, frecce dei mesi accese, scheda «Movimento periodo chiuso», comunicazione.
 Non provato su Chrome di marca, Edge, Windows e Mac: stesso motore, ma nessun giro fatto lì.
 
