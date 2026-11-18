@@ -23,7 +23,7 @@ Python **non** serve (solo per la strada B).
    **Impostazioni → App installate** (strutture e impostazioni restano).
 
 Non serve un account GitHub. (Gli «artefatti» delle singole build, nella pagina
-Actions, sono lo stesso .exe ma si scaricano solo da entrati, e dopo 90 giorni
+Actions, sono lo stesso .exe ma si scaricano solo da entrati, e dopo 7 giorni
 spariscono: la Release no.)
 
 ## B. Costruirlo sul PC (di riserva)

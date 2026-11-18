@@ -247,21 +247,21 @@ jobs:
           path: dist/IstatUploader.exe
           archive: false
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 7
 
       - uses: actions/upload-artifact@v7
         with:
           path: dist/IstatUploader.msix
           archive: false
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 7
 
       - uses: actions/upload-artifact@v7
         with:
           path: dist/prova-settembre-2026.zip
           archive: false
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 7
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
